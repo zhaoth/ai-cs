@@ -33,6 +33,12 @@ const uploadedFiles = ref<FileAttachment[]>([])
 // 消息反馈状态管理
 const messageFeedback = ref<Record<string, { liked: boolean; disliked: boolean }>>({})
 
+// 复制选项显示状态
+const showCopyOptions = ref<Record<string, boolean>>({})
+
+// Markdown 框内复制选项显示状态
+const showMarkdownCopyOptions = ref<Record<string, boolean>>({})
+
 // 处理文件上传
 const handleFileUpload = async (file: FileAttachment) => {
   try {
@@ -562,13 +568,13 @@ const dislikeMessage = (messageId: string) => {
   }
 }
 
-// 复制消息内容
+// 复制消息内容（纯文本）
 const copyMessage = async (content: string) => {
   try {
     // 获取纯文本内容（去除 Markdown 语法）
     const textToCopy = getMessageTextForCopy(content)
     await navigator.clipboard.writeText(textToCopy)
-    message.success('内容已复制到剪贴板')
+    message.success('纯文本内容已复制到剪贴板')
   } catch (error) {
     console.error('复制失败:', error)
     // 降级方案：创建临时文本域
@@ -578,7 +584,58 @@ const copyMessage = async (content: string) => {
     textarea.select()
     try {
       document.execCommand('copy')
-      message.success('内容已复制到剪贴板')
+      message.success('纯文本内容已复制到剪贴板')
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
+    document.body.removeChild(textarea)
+  }
+}
+
+// 切换复制选项显示状态
+const toggleCopyOptions = (messageId: string) => {
+  showCopyOptions.value[messageId] = !showCopyOptions.value[messageId]
+  // 关闭其他消息的复制选项
+  Object.keys(showCopyOptions.value).forEach((id) => {
+    if (id !== messageId) {
+      showCopyOptions.value[id] = false
+    }
+  })
+  // 关闭 Markdown 框内的复制选项
+  Object.keys(showMarkdownCopyOptions.value).forEach((id) => {
+    showMarkdownCopyOptions.value[id] = false
+  })
+}
+
+// 切换 Markdown 框内复制选项显示状态
+const toggleMarkdownCopyOptions = (messageId: string) => {
+  showMarkdownCopyOptions.value[messageId] = !showMarkdownCopyOptions.value[messageId]
+  // 关闭其他消息的 Markdown 框内复制选项
+  Object.keys(showMarkdownCopyOptions.value).forEach((id) => {
+    if (id !== messageId) {
+      showMarkdownCopyOptions.value[id] = false
+    }
+  })
+  // 关闭底部的复制选项
+  Object.keys(showCopyOptions.value).forEach((id) => {
+    showCopyOptions.value[id] = false
+  })
+}
+const copyMarkdownMessage = async (content: string) => {
+  try {
+    // 直接复制原始 Markdown 内容
+    await navigator.clipboard.writeText(content)
+    message.success('Markdown 格式已复制到剪贴板')
+  } catch (error) {
+    console.error('复制失败:', error)
+    // 降级方案：创建临时文本域
+    const textarea = document.createElement('textarea')
+    textarea.value = content
+    document.body.appendChild(textarea)
+    textarea.select()
+    try {
+      document.execCommand('copy')
+      message.success('Markdown 格式已复制到剪贴板')
     } catch {
       message.error('复制失败，请手动复制')
     }
@@ -664,6 +721,21 @@ onMounted(() => {
     modelsStore.selectModel('kimi')
     chatStore.createChat('kimi')
   }
+
+  // 添加全局点击事件监听器，用于关闭复制选项菜单
+  document.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement
+    // 检查点击目标是否在复制按钮或菜单内
+    if (!target.closest('.relative')) {
+      // 关闭所有复制选项菜单
+      Object.keys(showCopyOptions.value).forEach((id) => {
+        showCopyOptions.value[id] = false
+      })
+      Object.keys(showMarkdownCopyOptions.value).forEach((id) => {
+        showMarkdownCopyOptions.value[id] = false
+      })
+    }
+  })
 })
 
 const sendMessage = async () => {
@@ -984,13 +1056,13 @@ const generateContextAwareResponse = (
           <div
             v-for="message in chatStore.currentChat.messages"
             :key="message.id"
-            class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 transition-all duration-300 hover:shadow-md hover:border-gray-200"
+            class="group bg-white rounded-xl p-6 shadow-sm border border-gray-100 transition-all duration-300 hover:shadow-md hover:border-gray-200"
           >
             <div class="flex items-start space-x-3 mb-4">
               <div class="text-2xl">
                 {{ message.role === 'user' ? '👤' : getModelIcon(modelsStore.selectedModelId) }}
               </div>
-              <div class="flex-1">
+              <div class="flex-1 min-w-0">
                 <h4 class="font-medium text-gray-800 mb-2">
                   {{
                     message.role === 'user'
@@ -999,19 +1071,73 @@ const generateContextAwareResponse = (
                   }}
                 </h4>
                 <!-- 消息内容显示 -->
-                <div
-                  class="text-gray-600 leading-relaxed"
-                  :class="{
-                    'whitespace-pre-wrap': !messageHasMarkdown(message.content),
-                    'markdown-content': messageHasMarkdown(message.content),
-                  }"
-                >
-                  <template v-if="messageHasMarkdown(message.content)">
-                    <div v-html="renderMessageContent(message.content)"></div>
-                  </template>
-                  <template v-else>
-                    {{ message.content }}
-                  </template>
+                <div class="relative">
+                  <div
+                    class="text-gray-600 leading-relaxed"
+                    :class="{
+                      'whitespace-pre-wrap': !messageHasMarkdown(message.content),
+                      'markdown-content': messageHasMarkdown(message.content),
+                    }"
+                  >
+                    <template v-if="messageHasMarkdown(message.content)">
+                      <div v-html="renderMessageContent(message.content)"></div>
+                    </template>
+                    <template v-else>
+                      {{ message.content }}
+                    </template>
+                  </div>
+
+                  <!-- Markdown 内容框中的浮动复制按钮 -->
+                  <div
+                    v-if="messageHasMarkdown(message.content)"
+                    class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                  >
+                    <div class="relative">
+                      <button
+                        @click="toggleMarkdownCopyOptions(message.id)"
+                        class="p-2 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 text-gray-600 hover:text-gray-800"
+                        :class="{
+                          'text-blue-600 bg-blue-50/90': showMarkdownCopyOptions[message.id],
+                        }"
+                        title="复制 Markdown 内容"
+                      >
+                        <span class="text-sm">📋</span>
+                        <span class="text-xs ml-1">▼</span>
+                      </button>
+
+                      <!-- Markdown 框内复制选项下拉菜单 -->
+                      <div
+                        v-if="showMarkdownCopyOptions[message.id]"
+                        class="absolute top-full mt-1 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-40 copy-options-dropdown"
+                      >
+                        <button
+                          @click="
+                            () => {
+                              copyMarkdownMessage(message.content)
+                              showMarkdownCopyOptions[message.id] = false
+                            }
+                          "
+                          class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center space-x-2"
+                        >
+                          <span>📄</span>
+                          <span>Markdown 格式</span>
+                        </button>
+                        <div class="border-t border-gray-100 my-1"></div>
+                        <button
+                          @click="
+                            () => {
+                              copyMessage(message.content)
+                              showMarkdownCopyOptions[message.id] = false
+                            }
+                          "
+                          class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center space-x-2"
+                        >
+                          <span>📝</span>
+                          <span>纯文本格式</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 文件附件显示 -->
@@ -1085,13 +1211,64 @@ const generateContextAwareResponse = (
                 <span>{{ messageFeedback[message.id]?.disliked ? '已反对' : '反对' }}</span>
               </button>
 
-              <button
-                @click="copyMessage(message.content)"
-                class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <span>📋</span>
-                <span>复制</span>
-              </button>
+              <!-- 复制按钮区域 -->
+              <div class="relative">
+                <!-- Markdown 内容的复制按钮（支持两种格式） -->
+                <template v-if="messageHasMarkdown(message.content)">
+                  <button
+                    @click="toggleCopyOptions(message.id)"
+                    class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                    :class="{ 'text-blue-600': showCopyOptions[message.id] }"
+                  >
+                    <span>📋</span>
+                    <span>复制</span>
+                    <span class="text-xs ml-1">▼</span>
+                  </button>
+
+                  <!-- 复制选项下拉菜单 -->
+                  <div
+                    v-if="showCopyOptions[message.id]"
+                    class="absolute bottom-full mb-2 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-36 copy-options-dropdown"
+                  >
+                    <button
+                      @click="
+                        () => {
+                          copyMarkdownMessage(message.content)
+                          showCopyOptions[message.id] = false
+                        }
+                      "
+                      class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center space-x-2 copy-button-hover"
+                    >
+                      <span>📄</span>
+                      <span>Markdown 格式</span>
+                    </button>
+                    <div class="border-t border-gray-100 my-1"></div>
+                    <button
+                      @click="
+                        () => {
+                          copyMessage(message.content)
+                          showCopyOptions[message.id] = false
+                        }
+                      "
+                      class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center space-x-2 copy-button-hover"
+                    >
+                      <span>📝</span>
+                      <span>纯文本格式</span>
+                    </button>
+                  </div>
+                </template>
+
+                <!-- 非 Markdown 内容的普通复制按钮 -->
+                <template v-else>
+                  <button
+                    @click="copyMessage(message.content)"
+                    class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    <span>📋</span>
+                    <span>复制</span>
+                  </button>
+                </template>
+              </div>
 
               <button
                 @click="regenerateResponse(message)"
@@ -1127,32 +1304,6 @@ const generateContextAwareResponse = (
     <!-- 底部输入区 -->
     <div class="border-t border-gray-200 bg-white p-6">
       <div class="max-w-4xl mx-auto">
-        <!-- 功能按钮 -->
-        <div class="flex items-center justify-center space-x-6 mb-4">
-          <div
-            @click="openFileUploadModal"
-            class="flex flex-col items-center cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition-colors group"
-          >
-            <div class="text-2xl mb-1 group-hover:scale-110 transition-transform">📁</div>
-            <span class="text-xs text-gray-600">上传</span>
-          </div>
-          <div
-            @click="showClearContextConfirm"
-            class="flex flex-col items-center cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition-colors group"
-            :class="{
-              'opacity-50 cursor-not-allowed':
-                !chatStore.currentChat || chatStore.currentChat.messages.length === 0,
-            }"
-          >
-            <div class="text-2xl mb-1 group-hover:scale-110 transition-transform">🗑️</div>
-            <span class="text-xs text-gray-600">清空</span>
-          </div>
-          <div class="flex flex-col items-center p-3 rounded-lg">
-            <div class="text-2xl mb-1">🤖</div>
-            <span class="text-xs text-gray-600">等待更多</span>
-          </div>
-        </div>
-
         <!-- 输入框区域 -->
         <div class="relative">
           <div
