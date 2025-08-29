@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
 export interface Model {
@@ -9,6 +9,11 @@ export interface Model {
   capabilities: string[]
 }
 
+export interface ApiKey {
+  provider: string
+  key: string
+}
+
 export const useModelsStore = defineStore('models', () => {
   const models = ref<Model[]>([
     {
@@ -16,47 +21,75 @@ export const useModelsStore = defineStore('models', () => {
       name: 'GPT-4',
       provider: 'OpenAI',
       description: 'OpenAI最先进的模型，适用于复杂任务',
-      capabilities: ['text', 'code']
+      capabilities: ['text', 'code'],
     },
     {
       id: 'gpt-3.5-turbo',
       name: 'GPT-3.5 Turbo',
       provider: 'OpenAI',
       description: '快速且功能强大的模型，适用于大多数任务',
-      capabilities: ['text']
+      capabilities: ['text'],
     },
     {
       id: 'claude-2',
       name: 'Claude 2',
       provider: 'Anthropic',
       description: '平衡性能和安全性的对话AI',
-      capabilities: ['text']
+      capabilities: ['text'],
     },
     {
       id: 'llama-2',
       name: 'Llama 2',
       provider: 'Meta',
       description: '开源大语言模型',
-      capabilities: ['text']
+      capabilities: ['text'],
     },
     {
       id: 'palm-2',
       name: 'PaLM 2',
       provider: 'Google',
       description: 'Google的大型语言模型',
-      capabilities: ['text', 'code']
-    }
+      capabilities: ['text', 'code'],
+    },
+    {
+      id: 'kimi',
+      name: 'Kimi',
+      provider: 'Moonshot',
+      description: 'Moonshot AI的智能助手，擅长长文本理解和多语言对话',
+      capabilities: ['text', 'long-context'],
+    },
   ])
 
-  const selectedModelId = ref<string>('gpt-4')
+  const selectedModelId = ref<string>('kimi')
+
+  // API Keys 管理
+  const apiKeys = ref<ApiKey[]>([
+    {
+      provider: 'Moonshot',
+      key: 'sk-D8ZaSoL1WeO2j2eFY1WPGTp2iLh4wxWtOLslyMPwGeWWfnR9',
+    },
+  ])
 
   const selectedModel = computed(() => {
-    return models.value.find(model => model.id === selectedModelId.value) || models.value[0]
+    return models.value.find((model) => model.id === selectedModelId.value) || models.value[0]
   })
 
   function selectModel(modelId: string) {
-    if (models.value.some(model => model.id === modelId)) {
+    if (models.value.some((model) => model.id === modelId)) {
       selectedModelId.value = modelId
+    }
+  }
+
+  function getApiKey(provider: string): string | undefined {
+    return apiKeys.value.find((api) => api.provider === provider)?.key
+  }
+
+  function setApiKey(provider: string, key: string) {
+    const existingIndex = apiKeys.value.findIndex((api) => api.provider === provider)
+    if (existingIndex >= 0) {
+      apiKeys.value[existingIndex].key = key
+    } else {
+      apiKeys.value.push({ provider, key })
     }
   }
 
@@ -64,6 +97,9 @@ export const useModelsStore = defineStore('models', () => {
     models,
     selectedModelId,
     selectedModel,
-    selectModel
+    selectModel,
+    apiKeys,
+    getApiKey,
+    setApiKey,
   }
 })

@@ -7,8 +7,8 @@ const router = createRouter({
     {
       path: '/',
       name: 'ai-chat',
-      component: AiChat
-    }
+      component: AiChat,
+    },
   ],
 })
 

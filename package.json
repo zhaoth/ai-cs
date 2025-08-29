@@ -16,6 +16,7 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "@vueuse/core": "^13.8.0",
     "ant-design-vue": "^4.2.6",
     "pinia": "^3.0.3",
     "tailwindcss": "^3.4.17",

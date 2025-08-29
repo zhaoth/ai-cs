@@ -14,26 +14,86 @@ body {
 }
 
 /* 自定义滚动条 */
-.scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: #c1c1c1 #f1f1f1;
-}
-
-.scrollbar-thin::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
   border-radius: 3px;
 }
 
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 针对 Firefox 的滚动条样式 */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) rgba(0, 0, 0, 0.02);
+}
+
+/* 对话区域的优雅滚动条 */
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.3) rgba(0, 0, 0, 0.02);
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(45deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(45deg, rgba(99, 102, 241, 0.5), rgba(139, 92, 246, 0.5));
+  transform: scaleY(1.1);
+}
+
+/* 搜索下拉菜单滚动条 */
+.search-dropdown-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.4) rgba(249, 250, 251, 0.8);
+}
+
+.search-dropdown-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.search-dropdown-scroll::-webkit-scrollbar-track {
+  background: rgba(249, 250, 251, 0.8);
+  border-radius: 3px;
+}
+
+.search-dropdown-scroll::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.search-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
 }
 
 /* 动画效果 */
