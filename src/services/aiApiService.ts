@@ -50,6 +50,7 @@ export interface ApiRequestConfig {
   stream?: boolean
   systemMessage?: string
   onStreamChunk?: (chunk: string) => void // 新增：流式数据回调
+  abortController?: AbortController // 新增：取消控制器
 }
 
 // 默认请求配置
@@ -107,6 +108,7 @@ abstract class BaseApiProvider {
   protected async processStreamResponse(
     response: Response,
     onChunk?: (chunk: string) => void,
+    abortController?: AbortController,
   ): Promise<string> {
     const reader = response.body?.getReader()
     if (!reader) {
@@ -118,6 +120,11 @@ abstract class BaseApiProvider {
 
     try {
       while (true) {
+        // 检查是否被中止
+        if (abortController?.signal.aborted) {
+          throw new Error('请求已被用户取消')
+        }
+
         const { done, value } = await reader.read()
         if (done) break
 
@@ -183,6 +190,7 @@ abstract class BaseApiProvider {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
+        signal: config.abortController?.signal, // 添加取消信号
       })
 
       if (!response.ok) {
@@ -194,7 +202,11 @@ abstract class BaseApiProvider {
 
       // 根据是否启用流式处理选择不同的处理方式
       if (config.stream !== false) {
-        return await this.processStreamResponse(response, config.onStreamChunk)
+        return await this.processStreamResponse(
+          response,
+          config.onStreamChunk,
+          config.abortController,
+        )
       } else {
         const data = await response.json()
         return this.processResponse(data)
