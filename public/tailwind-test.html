@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tailwind CSS 基础测试</title>
+</head>
+<body class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+    <div class="max-w-2xl mx-auto space-y-6">
+        <!-- 基础颜色测试 -->
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h1 class="text-2xl font-bold text-gray-900 mb-4">Tailwind CSS 基础测试</h1>
+            
+            <!-- 基础背景色测试 -->
+            <div class="space-y-3 mb-6">
+                <h2 class="text-lg font-semibold">基础背景色测试：</h2>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-red-500 text-white p-3 rounded">bg-red-500</div>
+                    <div class="bg-blue-500 text-white p-3 rounded">bg-blue-500</div>
+                    <div class="bg-green-500 text-white p-3 rounded">bg-green-500</div>
+                    <div class="bg-yellow-500 text-black p-3 rounded">bg-yellow-500</div>
+                    <div class="bg-purple-500 text-white p-3 rounded">bg-purple-500</div>
+                    <div class="bg-pink-500 text-white p-3 rounded">bg-pink-500</div>
+                </div>
+            </div>
+            
+            <!-- 文字颜色测试 -->
+            <div class="space-y-3 mb-6">
+                <h2 class="text-lg font-semibold">文字颜色测试：</h2>
+                <div class="space-y-2">
+                    <p class="text-red-500">text-red-500 - 红色文字</p>
+                    <p class="text-blue-600">text-blue-600 - 蓝色文字</p>
+                    <p class="text-green-700">text-green-700 - 绿色文字</p>
+                    <p class="text-purple-800">text-purple-800 - 紫色文字</p>
+                </div>
+            </div>
+            
+            <!-- 自定义主题色测试 -->
+            <div class="space-y-3 mb-6">
+                <h2 class="text-lg font-semibold">自定义主题色测试：</h2>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-primary-500 text-white p-3 rounded">bg-primary-500</div>
+                    <div class="bg-primary-600 text-white p-3 rounded">bg-primary-600</div>
+                    <div class="bg-primary-700 text-white p-3 rounded">bg-primary-700</div>
+                    <div class="bg-primary-800 text-white p-3 rounded">bg-primary-800</div>
+                </div>
+            </div>
+            
+            <!-- 交互测试 -->
+            <div class="space-y-3">
+                <h2 class="text-lg font-semibold">交互效果测试：</h2>
+                <div class="space-y-3">
+                    <button class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded transition-colors">
+                        hover:bg-blue-600
+                    </button>
+                    <button class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                        hover:bg-red-700
+                    </button>
+                    <button class="bg-primary-500 hover:bg-primary-600 text-white font-bold py-2 px-4 rounded transition-colors">
+                        hover:bg-primary-600
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 布局测试 -->
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-lg font-semibold mb-4">布局测试：</h2>
+            <div class="flex items-center justify-between bg-gray-50 p-4 rounded">
+                <span class="text-gray-700">flex items-center justify-between</span>
+                <div class="w-4 h-4 bg-green-500 rounded-full"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
