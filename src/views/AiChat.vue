@@ -1033,12 +1033,6 @@ const generateContextAwareResponse = (
     <!-- 对话内容区 -->
     <div ref="chatContainer" class="flex-1 px-8 pb-6 overflow-y-auto chat-scroll">
       <div class="max-w-4xl mx-auto space-y-6">
-        <!-- 余额警告组件 -->
-        <BalanceWarning />
-
-        <!-- 余额显示组件 -->
-        <BalanceDisplay />
-
         <!-- 加载状态 -->
         <div v-if="loading" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 mb-6">
           <div class="flex items-center justify-between">

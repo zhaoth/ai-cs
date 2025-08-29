@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useModelsStore } from '@/stores/models'
+import { useChatHistoryStore } from '@/stores/chatHistory'
 import { message } from 'ant-design-vue'
 import { usageTracker } from '@/services/usageTracker'
+import { balanceService } from '@/services/balanceService'
 
 const modelsStore = useModelsStore()
+const chatStore = useChatHistoryStore()
 
 // 控制余额显示的可见性
 const showBalance = ref(false)
@@ -51,37 +54,33 @@ const getUsagePercentage = (usage: number, total: number) => {
   return total > 0 ? Math.round((usage / total) * 100) : 0
 }
 
-// 模拟获取实时余额数据
+// 获取实时余额数据（使用真实API）
 const refreshBalances = async () => {
   if (isRefreshing.value) return
 
   isRefreshing.value = true
 
   try {
-    // 模拟API调用延迟
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    console.log('开始刷新余额...')
+    message.info('正在获取最新余额信息...')
 
-    // 模拟更新余额数据
-    for (const model of modelsStore.models) {
-      const currentBalance = modelsStore.getBalance(model.provider)
-      if (currentBalance) {
-        // 模拟余额变化（可能增加或减少）
-        const change = (Math.random() - 0.5) * 10 // -5到+5的随机变化
-        const newBalance = Math.max(0, currentBalance.balance + change)
-        const newUsage = currentBalance.total - newBalance
-
-        modelsStore.updateBalance(model.provider, {
-          balance: newBalance,
-          usage: newUsage,
-          status: newBalance > 10 ? 'active' : newBalance > 0 ? 'limited' : 'expired',
-        })
-      }
-    }
+    // 使用真实的余额服务
+    await balanceService.updateAllBalances(false) // false表示使用真实API，不用模拟数据
 
     message.success('余额信息已更新')
+    console.log('余额刷新完成')
   } catch (error) {
-    message.error('获取余额失败')
     console.error('获取余额失败:', error)
+    message.warning('API调用失败，使用模拟数据')
+
+    // 如果真实API失败，降级使用模拟数据
+    try {
+      await balanceService.updateAllBalances(true) // true表示使用模拟数据
+      message.info('已切换到模拟数据模式')
+    } catch (mockError) {
+      console.error('模拟数据也失败:', mockError)
+      message.error('获取余额失败')
+    }
   } finally {
     isRefreshing.value = false
   }
@@ -90,7 +89,10 @@ const refreshBalances = async () => {
 // 定期更新余额（每5分钟）
 let updateInterval: number | null = null
 
-onMounted(() => {
+onMounted(async () => {
+  // 页面加载时立即获取一次真实余额
+  await refreshBalances()
+
   // 设置定期更新
   updateInterval = window.setInterval(
     () => {
@@ -106,17 +108,59 @@ onUnmounted(() => {
   }
 })
 
-// 当前模型的余额信息
-const currentBalance = computed(() => modelsStore.currentModelBalance)
+// 当前会话的模型信息（使用会话级别的模型选择）
+const currentChatModelId = computed(() => {
+  const modelId =
+    chatStore.currentChat?.selectedModelId ||
+    chatStore.currentChat?.model ||
+    modelsStore.selectedModelId
+  console.log('ℹ️ 当前会话模型ID:', modelId, {
+    chatSelectedModelId: chatStore.currentChat?.selectedModelId,
+    chatModel: chatStore.currentChat?.model,
+    globalSelectedModelId: modelsStore.selectedModelId,
+  })
+  return modelId
+})
+
+const currentChatModel = computed(() => {
+  const modelId = currentChatModelId.value
+  const model = modelsStore.models.find((model) => model.id === modelId) || modelsStore.models[0]
+  console.log('ℹ️ 当前会话模型:', model)
+  return model
+})
+
+// 当前模型的余额信息（基于会话模型）
+const currentBalance = computed(() => {
+  const model = currentChatModel.value
+  const balance = model ? modelsStore.getBalance(model.provider) : undefined
+  console.log('ℹ️ 当前模型余额:', model?.provider, balance)
+  return balance
+})
 
 // 所有模型的余额信息
 const allBalances = computed(() => modelsStore.allBalances)
 
-// 今日使用统计
+// 今日使用统计（基于当前会话模型）
 const todayUsage = computed(() => {
-  const currentProvider = modelsStore.selectedModel.provider
+  const currentProvider = currentChatModel.value.provider
   return usageTracker.getTodayUsage(currentProvider)
 })
+
+// 切换模型帮助调试
+const toggleModel = () => {
+  // 切换到另一个模型
+  if (currentChatModelId.value === 'kimi') {
+    if (chatStore.currentChat) {
+      chatStore.currentChat.selectedModelId = 'deepseek-v3.1'
+      message.info('已切换到 DeepSeek v3.1')
+    }
+  } else {
+    if (chatStore.currentChat) {
+      chatStore.currentChat.selectedModelId = 'kimi'
+      message.info('已切换到 Kimi')
+    }
+  }
+}
 
 // 切换余额显示
 const toggleBalanceDisplay = () => {
@@ -146,28 +190,44 @@ const toggleBalanceDisplay = () => {
       <button
         @click="refreshBalances"
         :disabled="isRefreshing"
-        class="flex items-center space-x-1 px-2 py-2 text-gray-600 hover:text-blue-600 rounded-lg transition-colors duration-200"
-        :class="{ 'animate-spin': isRefreshing }"
-        title="刷新余额"
+        class="flex items-center space-x-1 px-3 py-2 bg-green-50 hover:bg-green-100 text-green-700 rounded-lg transition-colors duration-200"
+        :class="{ 'opacity-50': isRefreshing }"
+        title="获取真实余额"
       >
-        <span class="text-sm">🔄</span>
+        <span class="text-sm" :class="{ 'animate-spin': isRefreshing }">🔄</span>
+        <span class="text-sm font-medium">
+          {{ isRefreshing ? '获取中...' : '刷新余额' }}
+        </span>
+      </button>
+
+      <!-- 模型切换测试按钮 -->
+      <button
+        @click="toggleModel"
+        class="flex items-center space-x-1 px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg transition-colors duration-200"
+        title="测试模型切换"
+      >
+        <span class="text-sm">🔀</span>
+        <span class="text-sm font-medium">切换模型</span>
       </button>
     </div>
 
     <!-- 当前模型余额快速显示 -->
     <div
-      v-if="currentBalance"
       class="current-balance mb-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100"
     >
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-3">
-          <span class="text-2xl">{{ getModelIcon(modelsStore.selectedModelId) }}</span>
+          <span class="text-2xl">{{ getModelIcon(currentChatModelId) }}</span>
           <div>
-            <h4 class="font-medium text-gray-800">{{ modelsStore.selectedModel.name }}</h4>
-            <p class="text-xs text-gray-500">当前模型余额</p>
+            <h4 class="font-medium text-gray-800">{{ currentChatModel.name }}</h4>
+            <p class="text-xs text-gray-500">当前会话模型余额</p>
+            <!-- 调试信息 -->
+            <p class="text-xs text-blue-600 mt-1">
+              模型ID: {{ currentChatModelId }} | 提供商: {{ currentChatModel.provider }}
+            </p>
           </div>
         </div>
-        <div class="text-right">
+        <div v-if="currentBalance" class="text-right">
           <div class="flex items-center space-x-2">
             <span :class="getStatusColor(currentBalance.status)">
               {{ getStatusIcon(currentBalance.status) }}
@@ -181,10 +241,14 @@ const toggleBalanceDisplay = () => {
           </div>
           <p class="text-xs text-gray-500">总额 {{ formatBalance(currentBalance.total) }}</p>
         </div>
+        <div v-else class="text-right">
+          <span class="text-sm text-red-500">暂无余额数据</span>
+          <p class="text-xs text-gray-500">请点击刷新获取</p>
+        </div>
       </div>
 
       <!-- 使用进度条 -->
-      <div class="mt-3">
+      <div v-if="currentBalance" class="mt-3">
         <div class="flex justify-between text-xs text-gray-600 mb-1">
           <span>已使用</span>
           <span>{{ getUsagePercentage(currentBalance.usage, currentBalance.total) }}%</span>
@@ -255,7 +319,7 @@ const toggleBalanceDisplay = () => {
           :key="model.id"
           class="balance-item p-3 border border-gray-200 rounded-lg hover:shadow-sm transition-shadow duration-200"
           :class="{
-            'ring-2 ring-blue-500 ring-opacity-50': model.id === modelsStore.selectedModelId,
+            'ring-2 ring-blue-500 ring-opacity-50': model.id === currentChatModelId,
           }"
         >
           <div class="flex items-center justify-between mb-2">
@@ -326,11 +390,24 @@ const toggleBalanceDisplay = () => {
       </div>
 
       <!-- 刷新提示 -->
-      <div class="mt-4 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-        <p class="text-xs text-yellow-700 flex items-center space-x-2">
-          <span>💡</span>
-          <span>余额每5分钟自动更新，也可手动刷新获取最新数据</span>
-        </p>
+      <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div class="text-sm text-blue-700 space-y-1">
+          <p class="flex items-center space-x-2">
+            <span>💡</span>
+            <span>余额每5分钟自动更新，也可手动刷新获取最新数据</span>
+          </p>
+          <p class="flex items-center space-x-2">
+            <span>🔑</span>
+            <span>使用真实API查询余额，如果失败会自动降级到模拟数据</span>
+          </p>
+          <p class="flex items-center space-x-2">
+            <span>🔀</span>
+            <span class="font-medium">使用“切换模型”按钮测试 DeepSeek 余额显示！</span>
+          </p>
+          <p class="text-xs text-blue-600 mt-2">
+            API端点: Moonshot (/v1/users/me/balance) 和 DeepSeek (/user/balance)
+          </p>
+        </div>
       </div>
     </div>
   </div>

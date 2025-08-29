@@ -11,7 +11,15 @@ export interface BalanceResponse {
 
 // 各提供商余额查询接口抽象
 abstract class BaseBalanceProvider {
-  protected modelsStore = useModelsStore()
+  protected modelsStore: ReturnType<typeof useModelsStore> | null = null
+
+  // 延迟初始化 modelsStore
+  protected getModelsStore() {
+    if (!this.modelsStore) {
+      this.modelsStore = useModelsStore()
+    }
+    return this.modelsStore
+  }
 
   // 获取API密钥
   protected abstract getApiKey(): string
@@ -34,7 +42,7 @@ abstract class BaseBalanceProvider {
 // Kimi (Moonshot) 余额查询
 export class KimiBalanceProvider extends BaseBalanceProvider {
   protected getApiKey(): string {
-    const apiKey = this.modelsStore.getApiKey('Moonshot')
+    const apiKey = this.getModelsStore().getApiKey('Moonshot')
     if (!apiKey) {
       throw new Error('Kimi API Key 未配置')
     }
@@ -49,26 +57,69 @@ export class KimiBalanceProvider extends BaseBalanceProvider {
 
   async fetchBalance(): Promise<BalanceResponse> {
     const apiKey = this.getApiKey()
-    const headers = this.buildHeaders(apiKey)
 
     try {
-      // Moonshot API 余额查询端点
-      const response = await fetch('https://api.moonshot.cn/v1/users/me', {
+      // Moonshot API 余额查询端点（根据您提供的真实API）
+      console.log('正在查询Moonshot余额...')
+      const response = await fetch('https://api.moonshot.cn/v1/users/me/balance', {
         method: 'GET',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
       })
 
       if (!response.ok) {
-        throw new Error(`API调用失败: ${response.status} ${response.statusText}`)
+        const errorText = await response.text()
+        console.error('Moonshot API响应错误:', response.status, errorText)
+        throw new Error(`Moonshot API调用失败: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
+      console.log('Moonshot API响应:', data)
 
-      // 根据Moonshot API响应格式解析余额信息
-      // 注意：这里的字段名可能需要根据实际API响应调整
-      const balance = data.balance?.available || 0
-      const total = data.balance?.total || 0
-      const usage = total - balance
+      // 根据Moonshot API响应格式解析余额信息（根据您提供的真实格式）
+      let balance = 0
+      let total = 0
+      let usage = 0
+
+      // 根据您提供的API响应格式解析
+      if (data.code === 0 && data.data) {
+        // 主要使用available_balance作为可用余额
+        balance = data.data.available_balance || 0
+
+        // 计算总余额（可用余额 + 代金券余额 + 现金余额）
+        const voucherBalance = data.data.voucher_balance || 0
+        const cashBalance = data.data.cash_balance || 0
+        total = balance + voucherBalance + cashBalance
+
+        // 如果没有总使用量信息，将usage设为0（因为API只返回余额信息）
+        usage = 0
+
+        console.log(
+          `Moonshot余额解析结果: 可用=${balance}, 代金券=${voucherBalance}, 现金=${cashBalance}, 总计=${total}`,
+        )
+      } else {
+        console.warn('Moonshot API返回格式异常:', data)
+        // 尝试兼容其他可能的格式
+        if (data.available_balance !== undefined) {
+          balance = data.available_balance
+          total = data.total_balance || data.available_balance
+          usage = total - balance
+        } else if (data.balance !== undefined) {
+          if (typeof data.balance === 'number') {
+            balance = data.balance
+            total = data.total_balance || data.balance
+            usage = total - balance
+          } else if (data.balance.available !== undefined) {
+            balance = data.balance.available
+            total = data.balance.total || data.balance.available
+            usage = total - balance
+          }
+        }
+      }
+
+      console.log(`Moonshot余额解析结果: 余额=${balance}, 总额=${total}, 已用=${usage}`)
 
       return {
         balance,
@@ -93,7 +144,7 @@ export class KimiBalanceProvider extends BaseBalanceProvider {
 // DeepSeek 余额查询
 export class DeepSeekBalanceProvider extends BaseBalanceProvider {
   protected getApiKey(): string {
-    const apiKey = this.modelsStore.getApiKey('DeepSeek')
+    const apiKey = this.getModelsStore().getApiKey('DeepSeek')
     if (!apiKey) {
       throw new Error('DeepSeek API Key 未配置')
     }
@@ -108,26 +159,50 @@ export class DeepSeekBalanceProvider extends BaseBalanceProvider {
 
   async fetchBalance(): Promise<BalanceResponse> {
     const apiKey = this.getApiKey()
-    const headers = this.buildHeaders(apiKey)
 
     try {
-      // DeepSeek API 余额查询端点
+      // DeepSeek API 余额查询端点 (根据您提供的真实API)
+      console.log('正在查询DeepSeek余额...')
       const response = await fetch('https://api.deepseek.com/user/balance', {
         method: 'GET',
-        headers,
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
       })
 
       if (!response.ok) {
-        throw new Error(`API调用失败: ${response.status} ${response.statusText}`)
+        const errorText = await response.text()
+        console.error('DeepSeek API响应错误:', response.status, errorText)
+        throw new Error(`DeepSeek API调用失败: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
+      console.log('DeepSeek API响应:', data)
 
       // 根据DeepSeek API响应格式解析余额信息
-      // 注意：这里的字段名可能需要根据实际API响应调整
-      const balance = data.balance?.available_balance || 0
-      const total = data.balance?.total_balance || 0
-      const usage = total - balance
+      let balance = 0
+      let total = 0
+      let usage = 0
+
+      // 尝试多种可能的字段格式
+      if (data.balance_infos && Array.isArray(data.balance_infos)) {
+        // 如果返回的是余额信息数组
+        const balanceInfo = data.balance_infos[0] || {}
+        balance = balanceInfo.available_balance || balanceInfo.balance || 0
+        total = balanceInfo.total_balance || balanceInfo.total || balance
+        usage = total - balance
+      } else if (data.available_balance !== undefined) {
+        balance = data.available_balance
+        total = data.total_balance || data.available_balance
+        usage = total - balance
+      } else if (data.balance !== undefined) {
+        balance = data.balance
+        total = data.total || data.balance
+        usage = total - balance
+      }
+
+      console.log(`DeepSeek余额解析结果: 余额=${balance}, 总额=${total}, 已用=${usage}`)
 
       return {
         balance,
@@ -179,7 +254,15 @@ export class BalanceProviderFactory {
 
 // 统一的余额查询服务
 export class BalanceService {
-  private modelsStore = useModelsStore()
+  private modelsStore: ReturnType<typeof useModelsStore> | null = null
+
+  // 延迟初始化 modelsStore
+  private getModelsStore() {
+    if (!this.modelsStore) {
+      this.modelsStore = useModelsStore()
+    }
+    return this.modelsStore
+  }
 
   // 查询单个提供商的余额
   async fetchProviderBalance(provider: string): Promise<BalanceInfo | null> {
@@ -197,14 +280,14 @@ export class BalanceService {
       }
 
       // 更新存储中的余额信息
-      this.modelsStore.updateBalance(provider, balanceInfo)
+      this.getModelsStore().updateBalance(provider, balanceInfo)
 
       return balanceInfo
     } catch (error) {
       console.error(`查询${provider}余额失败:`, error)
 
       // 更新为错误状态
-      this.modelsStore.updateBalance(provider, {
+      this.getModelsStore().updateBalance(provider, {
         status: 'error',
         lastUpdated: new Date(),
       })
@@ -218,7 +301,7 @@ export class BalanceService {
     const results: BalanceInfo[] = []
 
     // 获取所有提供商
-    const providers = [...new Set(this.modelsStore.models.map((model) => model.provider))]
+    const providers = [...new Set(this.getModelsStore().models.map((model) => model.provider))]
 
     // 并行查询所有提供商的余额
     const promises = providers.map((provider) => this.fetchProviderBalance(provider))
@@ -254,10 +337,10 @@ export class BalanceService {
   async updateAllBalances(useMock = false): Promise<void> {
     if (useMock) {
       // 使用模拟数据
-      const providers = [...new Set(this.modelsStore.models.map((model) => model.provider))]
+      const providers = [...new Set(this.getModelsStore().models.map((model) => model.provider))]
       providers.forEach((provider) => {
         const mockBalance = this.generateMockBalance(provider)
-        this.modelsStore.updateBalance(provider, mockBalance)
+        this.getModelsStore().updateBalance(provider, mockBalance)
       })
       return
     }
@@ -272,8 +355,30 @@ export class BalanceService {
   }
 }
 
-// 创建余额服务实例
-export const balanceService = new BalanceService()
+// 使用单例模式创建余额服务实例
+let balanceServiceInstance: BalanceService | null = null
+
+export const getBalanceService = (): BalanceService => {
+  if (!balanceServiceInstance) {
+    balanceServiceInstance = new BalanceService()
+  }
+  return balanceServiceInstance
+}
+
+// 为了向后兼容，提供一个getter
+export const balanceService = {
+  get instance() {
+    return getBalanceService()
+  },
+  // 代理常用方法
+  fetchProviderBalance: (...args: Parameters<BalanceService['fetchProviderBalance']>) =>
+    getBalanceService().fetchProviderBalance(...args),
+  fetchAllBalances: () => getBalanceService().fetchAllBalances(),
+  updateAllBalances: (...args: Parameters<BalanceService['updateAllBalances']>) =>
+    getBalanceService().updateAllBalances(...args),
+  generateMockBalance: (...args: Parameters<BalanceService['generateMockBalance']>) =>
+    getBalanceService().generateMockBalance(...args),
+}
 
 // 导出类型
 export type { BalanceInfo }
