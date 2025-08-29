@@ -3,8 +3,14 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useChatHistoryStore } from '@/stores/chatHistory'
 import { useModelsStore } from '@/stores/models'
-import { type Message } from '@/stores/chatHistory'
+import { type Message, type FileAttachment } from '@/stores/chatHistory'
 import { useSearchHistoryStore } from '@/stores/searchHistory'
+import FileUpload from '@/components/FileUpload.vue'
+import {
+  renderMarkdownSync as renderMarkdown,
+  hasMarkdownSyntax,
+  getPlainText,
+} from '@/utils/markdown'
 
 const chatStore = useChatHistoryStore()
 const modelsStore = useModelsStore()
@@ -20,9 +26,412 @@ const searchInputFocused = ref(false)
 // 清空上下文确认对话框状态
 const showClearConfirm = ref(false)
 
+// 文件上传弹窗状态
+const showFileUploadModal = ref(false)
+const uploadedFiles = ref<FileAttachment[]>([])
+
 // 消息反馈状态管理
 const messageFeedback = ref<Record<string, { liked: boolean; disliked: boolean }>>({})
 
+// 处理文件上传
+const handleFileUpload = async (file: FileAttachment) => {
+  try {
+    file.uploadStatus = 'uploading'
+
+    // 只有在文件有实际内容或者是文本文件时才上传到Kimi
+    if (modelsStore.selectedModelId === 'kimi' && file.content && file.content.trim()) {
+      const kimiFileId = await uploadFileToKimi(file)
+      file.kimiFileId = kimiFileId
+    }
+
+    file.uploadStatus = 'success'
+    message.success(`文件 "${file.name}" 上传成功`)
+  } catch (error) {
+    console.error('文件上传失败:', error)
+    file.uploadStatus = 'error'
+    message.error(
+      `文件 "${file.name}" 上传失败: ${error instanceof Error ? error.message : '未知错误'}`,
+    )
+  }
+}
+
+// 上传文件到Kimi API
+const uploadFileToKimi = async (file: FileAttachment): Promise<string> => {
+  const apiKey = modelsStore.getApiKey('Moonshot')
+
+  if (!apiKey) {
+    throw new Error('Kimi API Key 未配置')
+  }
+
+  // 检查文件内容，只有有内容的文本文件才上传
+  if (!file.content || !file.content.trim()) {
+    throw new Error('文件内容为空，无法上传到 Kimi API')
+  }
+
+  // 验证文件类型
+  if (!file.type.startsWith('text/') && !file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
+    throw new Error('只支持文本文件上传到 Kimi API')
+  }
+
+  // 创建 FormData 用于文件上传
+  const formData = new FormData()
+
+  // 使用文件内容创建 Blob
+  const fileBlob = new Blob([file.content], {
+    type: file.type || 'text/plain',
+  })
+
+  // 检查 Blob 大小
+  if (fileBlob.size === 0) {
+    throw new Error('文件内容为空，无法上传')
+  }
+
+  formData.append('file', fileBlob, file.name)
+  formData.append('purpose', 'file-extract')
+
+  try {
+    const response = await fetch('https://api.moonshot.cn/v1/files', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(
+        `文件上传失败: ${response.status} ${errorData?.error?.message || response.statusText}`,
+      )
+    }
+
+    const data = await response.json()
+
+    if (!data.id) {
+      throw new Error('上传成功但未获得文件ID')
+    }
+
+    return data.id
+  } catch (error) {
+    console.error('Kimi文件上传API调用失败:', error)
+    throw error
+  }
+}
+
+// 打开文件上传弹窗
+const openFileUploadModal = () => {
+  showFileUploadModal.value = true
+}
+
+// 关闭文件上传弹窗
+const closeFileUploadModal = () => {
+  showFileUploadModal.value = false
+}
+
+// 确认上传文件
+const confirmUploadFiles = () => {
+  if (uploadedFiles.value.length === 0) {
+    message.warning('请选择要上传的文件')
+    return
+  }
+
+  // 验证文件内容
+  const validFiles = uploadedFiles.value.filter((file) => {
+    // 检查文本文件是否有内容
+    if (
+      (file.type.startsWith('text/') || file.name.endsWith('.md') || file.name.endsWith('.txt')) &&
+      (!file.content || !file.content.trim())
+    ) {
+      message.warning(`文件 "${file.name}" 内容为空，将跳过处理`)
+      return false
+    }
+    return true
+  })
+
+  if (validFiles.length === 0) {
+    message.error('没有有效的文件可以处理')
+    return
+  }
+
+  // 关闭文件上传弹窗
+  showFileUploadModal.value = false
+
+  // 自动提取文件内容并构建智能提示消息
+  const textFiles = validFiles.filter((f) => f.content && f.content.trim())
+  const otherFiles = validFiles.filter((f) => !f.content || !f.content.trim())
+
+  let autoMessage = ''
+
+  if (textFiles.length > 0) {
+    // 有文本内容的文件，自动生成分析请求
+    const fileContents = textFiles
+      .map((f) => {
+        const contentPreview =
+          f.content!.length > 200
+            ? f.content!.substring(0, 200) + '...\n[[内容较长，已截取前200字符展示]]'
+            : f.content!
+        return `📄 **${f.name}** (大小: ${formatFileSize(f.size)})\n内容预览:\n${contentPreview}`
+      })
+      .join('\n\n---\n\n')
+
+    autoMessage = `我上传了 ${validFiles.length} 个文件，请帮我分析一下文件内容：\n\n${fileContents}`
+
+    if (otherFiles.length > 0) {
+      const otherFileInfos = otherFiles
+        .map((f) => `📎 ${f.name} (大小: ${formatFileSize(f.size)})`)
+        .join('\n')
+      autoMessage += `\n\n还有其他文件：\n${otherFileInfos}`
+    }
+  } else {
+    // 没有文本内容，只显示文件信息
+    const fileInfos = validFiles
+      .map((f) => `📎 ${f.name} (大小: ${formatFileSize(f.size)})`)
+      .join('\n')
+    autoMessage = `已上传文件：\n${fileInfos}\n\n请问您希望我对这些文件进行什么操作？`
+  }
+
+  // 发送包含文件附件的消息
+  sendMessageWithFiles(autoMessage, [...validFiles])
+
+  const skippedCount = uploadedFiles.value.length - validFiles.length
+  const successMessage = `成功上传 ${validFiles.length} 个文件并开始分析${skippedCount > 0 ? `，跳过 ${skippedCount} 个无效文件` : ''}`
+  message.success(successMessage)
+
+  uploadedFiles.value = [] // 清空已上传文件列表
+}
+
+// 发送包含文件附件的消息
+const sendMessageWithFiles = async (messageText: string, files: FileAttachment[]) => {
+  if (loading.value) return
+
+  // 确保有当前聊天
+  let chatId = chatStore.currentChatId
+  if (!chatId) {
+    chatId = chatStore.createChat(modelsStore.selectedModelId, messageText)
+  }
+
+  // 添加用户消息（包含文件附件）
+  chatStore.addMessage(chatId, {
+    role: 'user',
+    content: messageText,
+    model: modelsStore.selectedModelId,
+    attachments: files,
+  })
+
+  // 显示加载状态
+  loading.value = true
+
+  try {
+    // 调用AI API，传递文件上下文
+    let aiResponse
+    try {
+      aiResponse = await callAiAPIWithFiles(modelsStore.selectedModelId, files)
+    } catch (error) {
+      console.error('AI API调用失败，使用模拟回复:', error)
+      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500))
+      aiResponse = generateFileAwareResponse(modelsStore.selectedModelId, files)
+    }
+
+    // 添加AI回复
+    chatStore.addMessage(chatId, {
+      role: 'assistant',
+      content: aiResponse,
+      model: modelsStore.selectedModelId,
+    })
+  } catch (error) {
+    console.error('发送消息失败:', error)
+    chatStore.addMessage(chatId, {
+      role: 'assistant',
+      content: `抱歉，处理文件时发生错误: ${error instanceof Error ? error.message : '未知错误'}`,
+      model: modelsStore.selectedModelId,
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+// 调用AI API（包含文件上下文）
+const callAiAPIWithFiles = async (modelId: string, files: FileAttachment[]): Promise<string> => {
+  // 获取当前对话的所有消息作为上下文
+  const currentMessages = chatStore.currentChat?.messages || []
+
+  // 构建包含文件信息的上下文
+  const contextMessages = currentMessages.map((msg) => {
+    let content = msg.content
+
+    // 如果消息包含文件附件，添加文件信息到内容中
+    if (msg.attachments && msg.attachments.length > 0) {
+      const fileInfos = msg.attachments
+        .map((f) => {
+          if (f.content) {
+            return `文件: ${f.name}\n内容: ${f.content}`
+          }
+          return `文件: ${f.name} (${f.type})`
+        })
+        .join('\n\n')
+      content += `\n\n附件信息:\n${fileInfos}`
+    }
+
+    return {
+      role: msg.role,
+      content: content,
+    }
+  })
+
+  // 限制上下文长度
+  const maxMessages = 20
+  const limitedMessages =
+    contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
+
+  switch (modelId) {
+    case 'kimi':
+      return await callKimiAPIWithFiles(limitedMessages, files)
+    case 'gpt-4':
+    case 'gpt-3.5-turbo':
+    case 'claude-2':
+    default:
+      return await callAiAPI(modelId) // 对于其他模型，使用原有逻辑
+  }
+}
+
+// 调用Kimi API（包含文件上下文）
+const callKimiAPIWithFiles = async (
+  messages: Array<{ role: string; content: string }>,
+  files: FileAttachment[],
+): Promise<string> => {
+  const apiKey = modelsStore.getApiKey('Moonshot')
+
+  if (!apiKey) {
+    throw new Error('Kimi API Key 未配置，请在模型设置中添加API密钥')
+  }
+
+  try {
+    // 构建请求消息，包含文件引用
+    const requestMessages = [...messages]
+
+    // 优先处理文本文件内容，其次使用Kimi文件ID
+    if (files.length > 0 && requestMessages.length > 0) {
+      const lastMessage = requestMessages[requestMessages.length - 1]
+      if (lastMessage.role === 'user') {
+        // 分类处理文件
+        const textFiles = files.filter((f) => f.content && f.content.trim())
+        const kimiFiles = files.filter((f) => f.kimiFileId && !f.content)
+
+        let fileContext = ''
+
+        // 优先使用文本文件内容（更可靠）
+        if (textFiles.length > 0) {
+          const textContents = textFiles
+            .map((f) => `文件: ${f.name}\n内容:\n${f.content}`)
+            .join('\n\n---文件分割线---\n\n')
+          fileContext += `\n\n以下是上传的文件内容：\n\n${textContents}`
+        }
+
+        // 如果有成功上传的Kimi文件ID，作为补充
+        if (kimiFiles.length > 0) {
+          const kimiFileIds = kimiFiles.map((f) => f.kimiFileId!)
+          fileContext += `\n\n请同时分析以下文件: ${kimiFileIds.map((id) => `file://${id}`).join(', ')}`
+        }
+
+        if (fileContext) {
+          lastMessage.content += fileContext
+        }
+      }
+    }
+
+    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'kimi-k2-0711-preview',
+        messages: requestMessages,
+        temperature: 0.7,
+        max_tokens: 3000, // 进一步增加token限制以支持更长的文件分析
+        stream: false,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(
+        `Kimi API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
+      )
+    }
+
+    const data = await response.json()
+    return data.choices[0]?.message?.content || '抱歉，我无法处理您上传的文件。'
+  } catch (error) {
+    console.error('Kimi API 调用失败:', error)
+    throw error
+  }
+}
+
+// 生成文件感知的模拟回复
+const generateFileAwareResponse = (modelId: string, files: FileAttachment[]): string => {
+  const fileNames = files.map((f) => f.name).join(', ')
+  const fileCount = files.length
+
+  const responses = [
+    `我已经接收到您上传的${fileCount}个文件：${fileNames}。`,
+    `感谢您上传文件。我注意到您分享了：${fileNames}。`,
+    `我看到您上传了${fileCount}个文件（${fileNames}）。`,
+  ]
+
+  const baseResponse = responses[Math.floor(Math.random() * responses.length)]
+
+  // 检查是否有文本文件内容
+  const textFiles = files.filter((f) => f.content)
+  if (textFiles.length > 0) {
+    const textContent = textFiles.map((f) => f.content).join('\n\n')
+    return `${baseResponse}\n\n基于您提供的文件内容，我可以看到：\n\n${textContent}\n\n请问您希望我如何帮助您分析或处理这些内容？`
+  }
+
+  return `${baseResponse}\n\n请问您希望我对这些文件进行什么操作？比如总结内容、分析数据、或者其他特定需求？\n\n💡 提示：当前使用的是模拟回复。如需获得真实的文件分析能力，请配置相应的API密钥。`
+}
+
+// 格式化文件大小
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+// 渲染消息内容
+const renderMessageContent = (content: string): string => {
+  if (!content) return ''
+
+  // 检查是否包含 Markdown 语法
+  if (hasMarkdownSyntax(content)) {
+    return renderMarkdown(content)
+  }
+
+  // 如果不包含 Markdown 语法，进行基本的文本处理
+  return content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\n/g, '<br>')
+}
+
+// 检查消息是否包含 Markdown
+const messageHasMarkdown = (content: string): boolean => {
+  return hasMarkdownSyntax(content)
+}
+
+// 复制消息内容（使用纯文本）
+const getMessageTextForCopy = (content: string): string => {
+  if (hasMarkdownSyntax(content)) {
+    return getPlainText(content)
+  }
+  return content
+}
 // 搜索建议计算属性
 const searchSuggestions = computed(() => {
   if (!inputMessage.value.trim()) {
@@ -156,13 +565,15 @@ const dislikeMessage = (messageId: string) => {
 // 复制消息内容
 const copyMessage = async (content: string) => {
   try {
-    await navigator.clipboard.writeText(content)
+    // 获取纯文本内容（去除 Markdown 语法）
+    const textToCopy = getMessageTextForCopy(content)
+    await navigator.clipboard.writeText(textToCopy)
     message.success('内容已复制到剪贴板')
   } catch (error) {
     console.error('复制失败:', error)
     // 降级方案：创建临时文本域
     const textarea = document.createElement('textarea')
-    textarea.value = content
+    textarea.value = getMessageTextForCopy(content)
     document.body.appendChild(textarea)
     textarea.select()
     try {
@@ -587,8 +998,57 @@ const generateContextAwareResponse = (
                       : `${modelsStore.selectedModel.name} 的回复`
                   }}
                 </h4>
-                <div class="text-gray-600 leading-relaxed whitespace-pre-wrap">
-                  {{ message.content }}
+                <!-- 消息内容显示 -->
+                <div
+                  class="text-gray-600 leading-relaxed"
+                  :class="{
+                    'whitespace-pre-wrap': !messageHasMarkdown(message.content),
+                    'markdown-content': messageHasMarkdown(message.content),
+                  }"
+                >
+                  <template v-if="messageHasMarkdown(message.content)">
+                    <div v-html="renderMessageContent(message.content)"></div>
+                  </template>
+                  <template v-else>
+                    {{ message.content }}
+                  </template>
+                </div>
+
+                <!-- 文件附件显示 -->
+                <div v-if="message.attachments && message.attachments.length > 0" class="mt-3">
+                  <div class="text-sm text-gray-500 mb-2">📎 附件：</div>
+                  <div class="space-y-2">
+                    <div
+                      v-for="file in message.attachments"
+                      :key="file.id"
+                      class="flex items-center p-2 bg-gray-50 rounded border text-sm"
+                    >
+                      <span class="text-lg mr-2">
+                        {{
+                          file.type.startsWith('image/')
+                            ? '🖼️'
+                            : file.type.startsWith('text/') ||
+                                file.name.endsWith('.md') ||
+                                file.name.endsWith('.txt')
+                              ? '📃'
+                              : file.type.includes('pdf')
+                                ? '📄'
+                                : '📎'
+                        }}
+                      </span>
+                      <div class="flex-1 min-w-0">
+                        <div class="font-medium text-gray-700 truncate">{{ file.name }}</div>
+                        <div class="text-xs text-gray-500">{{ formatFileSize(file.size) }}</div>
+                      </div>
+                      <div v-if="file.url && file.type.startsWith('image/')" class="ml-2">
+                        <img
+                          :src="file.url"
+                          :alt="file.name"
+                          class="w-8 h-8 object-cover rounded border"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="mt-3 text-xs text-gray-400">
                   {{ new Date(message.timestamp).toLocaleTimeString() }}
@@ -667,18 +1127,31 @@ const generateContextAwareResponse = (
     <!-- 底部输入区 -->
     <div class="border-t border-gray-200 bg-white p-6">
       <div class="max-w-4xl mx-auto">
-        <!-- 功能按钮
+        <!-- 功能按钮 -->
         <div class="flex items-center justify-center space-x-6 mb-4">
           <div
-            v-for="btn in functionButtons"
-            :key="btn.label"
-            @click="clickFunctionButton(btn.label)"
-            class="flex flex-col items-center cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+            @click="openFileUploadModal"
+            class="flex flex-col items-center cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition-colors group"
           >
-            <div class="text-2xl mb-1">{{ btn.icon }}</div>
-            <span class="text-xs text-gray-600">{{ btn.label }}</span>
+            <div class="text-2xl mb-1 group-hover:scale-110 transition-transform">📁</div>
+            <span class="text-xs text-gray-600">上传</span>
           </div>
-        </div> -->
+          <div
+            @click="showClearContextConfirm"
+            class="flex flex-col items-center cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition-colors group"
+            :class="{
+              'opacity-50 cursor-not-allowed':
+                !chatStore.currentChat || chatStore.currentChat.messages.length === 0,
+            }"
+          >
+            <div class="text-2xl mb-1 group-hover:scale-110 transition-transform">🗑️</div>
+            <span class="text-xs text-gray-600">清空</span>
+          </div>
+          <div class="flex flex-col items-center p-3 rounded-lg">
+            <div class="text-2xl mb-1">🤖</div>
+            <span class="text-xs text-gray-600">等待更多</span>
+          </div>
+        </div>
 
         <!-- 输入框区域 -->
         <div class="relative">
@@ -686,11 +1159,13 @@ const generateContextAwareResponse = (
             class="flex items-center bg-gray-50 rounded-2xl border border-gray-200 focus-within:border-primary-300 focus-within:ring-1 focus-within:ring-primary-200"
           >
             <div class="pl-4">
-              <div
-                class="w-6 h-6 bg-gradient-to-br from-primary-500 to-primary-600 rounded flex items-center justify-center"
+              <button
+                @click="openFileUploadModal"
+                class="w-6 h-6 bg-gradient-to-br from-primary-500 to-primary-600 rounded flex items-center justify-center hover:from-primary-600 hover:to-primary-700 transition-all duration-200 transform hover:scale-105"
+                title="上传文件"
               >
                 <span class="text-white text-xs">📎</span>
-              </div>
+              </button>
             </div>
             <input
               v-model="inputMessage"
@@ -795,8 +1270,6 @@ const generateContextAwareResponse = (
                   "
                 />
               </div>
-              <span class="cursor-pointer">🔗 联网搜索</span>
-              <span class="cursor-pointer">🔗 深度搜索</span>
               <!-- 清空上下文按钮 -->
               <button
                 @click="showClearContextConfirm"
@@ -811,17 +1284,7 @@ const generateContextAwareResponse = (
                 <span>清空上下文</span>
               </button>
             </div>
-            <div class="flex items-center space-x-2">
-              <span>✉️ 关键</span>
-              <span>📎</span>
-              <span>🎤</span>
-            </div>
           </div>
-        </div>
-
-        <!-- 底部信息 -->
-        <div class="text-center text-xs text-gray-400 mt-4">
-          以上内容均由AI生成，仅供参考智能建议，请理性参考
         </div>
       </div>
     </div>
@@ -842,6 +1305,102 @@ const generateContextAwareResponse = (
           <a-button type="primary" danger @click="confirmClearContext"> 确认清空 </a-button>
         </div>
       </template>
+    </a-modal>
+
+    <!-- 文件上传弹窗 -->
+    <a-modal
+      v-model:open="showFileUploadModal"
+      title="上传文件"
+      centered
+      :width="600"
+      :footer="null"
+    >
+      <div class="py-4">
+        <div class="mb-4">
+          <h4 class="text-sm font-medium text-gray-700 mb-2">选择要上传的文件：</h4>
+          <FileUpload
+            v-model="uploadedFiles"
+            @upload="handleFileUpload"
+            :max-count="5"
+            :max-size="10"
+            accept=".txt,.md,.pdf,.doc,.docx,.jpg,.jpeg,.png,.gif"
+          />
+        </div>
+
+        <div v-if="uploadedFiles.length > 0" class="mb-4">
+          <h4 class="text-sm font-medium text-gray-700 mb-2">已选择的文件：</h4>
+          <div class="text-sm text-gray-600 space-y-2">
+            <div
+              v-for="file in uploadedFiles"
+              :key="file.id"
+              class="flex items-center justify-between space-x-2 py-2 px-3 bg-gray-50 rounded border"
+            >
+              <div class="flex items-center space-x-2 flex-1 min-w-0">
+                <span>📎</span>
+                <span class="truncate font-medium">{{ file.name }}</span>
+                <span class="text-xs text-gray-400 flex-shrink-0"
+                  >({{ formatFileSize(file.size) }})</span
+                >
+              </div>
+              <div class="flex items-center space-x-2 flex-shrink-0">
+                <!-- 文件内容状态 -->
+                <span
+                  v-if="file.content && file.content.trim()"
+                  class="text-xs text-green-600"
+                  title="文件内容已读取"
+                >
+                  ✓ 内容已读取 ({{ file.content.length }} 字符)
+                </span>
+                <span
+                  v-else-if="
+                    file.type.startsWith('text/') ||
+                    file.name.endsWith('.md') ||
+                    file.name.endsWith('.txt')
+                  "
+                  class="text-xs text-orange-600"
+                  title="文本文件但内容为空"
+                >
+                  ⚠ 内容为空
+                </span>
+                <span v-else class="text-xs text-blue-600" title="非文本文件"> 📁 二进制文件 </span>
+
+                <!-- 上传状态 -->
+                <span v-if="file.uploadStatus === 'success'" class="text-xs text-green-600">
+                  ✓ 已上传
+                </span>
+                <span v-else-if="file.uploadStatus === 'uploading'" class="text-xs text-blue-600">
+                  🔄 上传中...
+                </span>
+                <span v-else-if="file.uploadStatus === 'error'" class="text-xs text-red-600">
+                  ✗ 上传失败
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-xs text-gray-500 mb-4 space-y-1">
+          <div>💡 <strong>支持的文件类型：</strong></div>
+          <div class="ml-4">
+            • <span class="text-green-600">文本文件</span>：.txt, .md - AI可直接读取内容并分析<br />
+            • <span class="text-blue-600">文档文件</span>：.pdf, .doc, .docx - 需要上传到Kimi
+            API进行处理<br />
+            • <span class="text-purple-600">图片文件</span>：.jpg, .png, .gif - 支持上传和引用
+          </div>
+          <div class="mt-2">⚠️ 注意：空文件或无内容的文本文件无法上传到Kimi API。</div>
+        </div>
+
+        <div class="flex justify-end space-x-3">
+          <a-button @click="closeFileUploadModal">取消</a-button>
+          <a-button
+            type="primary"
+            @click="confirmUploadFiles"
+            :disabled="uploadedFiles.length === 0"
+          >
+            确认上传 ({{ uploadedFiles.length }})
+          </a-button>
+        </div>
+      </div>
     </a-modal>
   </div>
 </template>

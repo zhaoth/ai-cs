@@ -2,12 +2,24 @@ import { computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useLocalStorage } from '@vueuse/core'
 
+export interface FileAttachment {
+  id: string
+  name: string
+  size: number
+  type: string
+  url?: string // 本地预览URL或上传后的远程URL
+  content?: string // 文件内容（文本文件）或base64数据
+  uploadStatus: 'pending' | 'uploading' | 'success' | 'error'
+  kimiFileId?: string // Kimi API返回的文件ID
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   model?: string
   timestamp: Date
+  attachments?: FileAttachment[] // 文件附件
 }
 
 export interface Chat {

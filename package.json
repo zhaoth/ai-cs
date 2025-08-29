@@ -18,6 +18,8 @@
   "dependencies": {
     "@vueuse/core": "^13.8.0",
     "ant-design-vue": "^4.2.6",
+    "highlight.js": "^11.11.1",
+    "marked": "^16.2.1",
     "pinia": "^3.0.3",
     "tailwindcss": "^3.4.17",
     "vue": "^3.5.18",
