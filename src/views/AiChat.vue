@@ -52,6 +52,9 @@ const showClearConfirm = ref(false)
 const showFileUploadModal = ref(false)
 const uploadedFiles = ref<FileAttachment[]>([])
 
+// 待发送的文件（用户上传但未发送的文件）
+const pendingFiles = ref<FileAttachment[]>([])
+
 // 消息反馈状态管理
 const messageFeedback = ref<Record<string, { liked: boolean; disliked: boolean }>>({})
 
@@ -94,7 +97,7 @@ const closeFileUploadModal = () => {
   showFileUploadModal.value = false
 }
 
-// 确认上传文件
+// 确认上传文件（修改为仅存储文件，不立即发送）
 const confirmUploadFiles = () => {
   if (uploadedFiles.value.length === 0) {
     message.warning('请选择要上传的文件')
@@ -119,51 +122,17 @@ const confirmUploadFiles = () => {
     return
   }
 
+  // 将有效文件添加到待发送列表
+  pendingFiles.value = [...validFiles]
+
   // 关闭文件上传弹窗
   showFileUploadModal.value = false
 
-  // 自动提取文件内容并构建智能提示消息
-  const textFiles = validFiles.filter((f) => f.content && f.content.trim())
-  const otherFiles = validFiles.filter((f) => !f.content || !f.content.trim())
-
-  let autoMessage = ''
-
-  if (textFiles.length > 0) {
-    // 有文本内容的文件，自动生成分析请求
-    const fileContents = textFiles
-      .map((f) => {
-        const contentPreview =
-          f.content!.length > 200
-            ? f.content!.substring(0, 200) + '...\n[[内容较长，已截取前200字符展示]]'
-            : f.content!
-        return `📄 **${f.name}** (大小: ${formatFileSize(f.size)})\n内容预览:\n${contentPreview}`
-      })
-      .join('\n\n---\n\n')
-
-    autoMessage = `我上传了 ${validFiles.length} 个文件，请帮我分析一下文件内容：\n\n${fileContents}`
-
-    if (otherFiles.length > 0) {
-      const otherFileInfos = otherFiles
-        .map((f) => `📎 ${f.name} (大小: ${formatFileSize(f.size)})`)
-        .join('\n')
-      autoMessage += `\n\n还有其他文件：\n${otherFileInfos}`
-    }
-  } else {
-    // 没有文本内容，只显示文件信息
-    const fileInfos = validFiles
-      .map((f) => `📎 ${f.name} (大小: ${formatFileSize(f.size)})`)
-      .join('\n')
-    autoMessage = `已上传文件：\n${fileInfos}\n\n请问您希望我对这些文件进行什么操作？`
-  }
-
-  // 发送包含文件附件的消息
-  sendMessageWithFiles(autoMessage, [...validFiles])
-
   const skippedCount = uploadedFiles.value.length - validFiles.length
-  const successMessage = `成功上传 ${validFiles.length} 个文件并开始分析${skippedCount > 0 ? `，跳过 ${skippedCount} 个无效文件` : ''}`
+  const successMessage = `成功准备 ${validFiles.length} 个文件${skippedCount > 0 ? `，跳过 ${skippedCount} 个无效文件` : ''}，点击发送按钮即可一起发送给AI`
   message.success(successMessage)
 
-  uploadedFiles.value = [] // 清空已上传文件列表
+  uploadedFiles.value = [] // 清空上传文件列表
 }
 
 // 发送包含文件附件的消息
@@ -184,11 +153,23 @@ const sendMessageWithFiles = async (messageText: string, files: FileAttachment[]
     attachments: files,
   })
 
-  // 显示加载状态
+  // 用户发送消息后立即滚动到底部
+  await scrollToBottom(true)
+
+  // 创建一个空的AI回复消息，用于流式输出
+  const aiMessageId = chatStore.addMessage(chatId, {
+    role: 'assistant',
+    content: '', // 初始为空
+    model: currentChatModelId.value,
+  })
+
+  // 设置流式状态
+  streamingMessageId.value = aiMessageId
+  streamingContent.value = ''
   loading.value = true
 
   try {
-    // 调用AI API，传递文件上下文
+    // 调用支持文件的AI API
     let aiResponse
     try {
       aiResponse = await callAiAPIWithFiles(currentChatModelId.value, files)
@@ -198,21 +179,49 @@ const sendMessageWithFiles = async (messageText: string, files: FileAttachment[]
       aiResponse = generateFileAwareResponse(currentChatModelId.value, files)
     }
 
-    // 添加AI回复
-    chatStore.addMessage(chatId, {
-      role: 'assistant',
-      content: aiResponse,
-      model: currentChatModelId.value,
-    })
+    // 模拟流式输出效果（因为文件API可能不支持流式）
+    streamingContent.value = ''
+    for (let i = 0; i < aiResponse.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 50)) // 30-80ms间隔
+      const char = aiResponse[i]
+      streamingContent.value += char
+
+      // 更新消息内容
+      const chat = chatStore.chats.find((c) => c.id === chatId)
+      if (chat) {
+        const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+        if (messageIndex !== -1) {
+          chat.messages[messageIndex].content = streamingContent.value
+        }
+      }
+
+      // 流式输出时自动滚动
+      scrollToBottom(false)
+    }
+
+    // 确保最终内容一致
+    const chat = chatStore.chats.find((c) => c.id === chatId)
+    if (chat) {
+      const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+      if (messageIndex !== -1) {
+        chat.messages[messageIndex].content = aiResponse
+      }
+    }
   } catch (error) {
     console.error('发送消息失败:', error)
-    chatStore.addMessage(chatId, {
-      role: 'assistant',
-      content: `抱歉，处理文件时发生错误: ${error instanceof Error ? error.message : '未知错误'}`,
-      model: currentChatModelId.value,
-    })
+    const chat = chatStore.chats.find((c) => c.id === chatId)
+    if (chat) {
+      const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+      if (messageIndex !== -1) {
+        chat.messages[messageIndex].content =
+          `抱歉，处理文件时发生错误: ${error instanceof Error ? error.message : '未知错误'}`
+      }
+    }
   } finally {
+    // 清理流式状态
     loading.value = false
+    streamingMessageId.value = null
+    streamingContent.value = ''
   }
 }
 
@@ -734,13 +743,22 @@ const sendMessage = async () => {
   inputMessage.value = ''
   showSearchSuggestions.value = false
 
+  // 检查是否有待发送的文件
+  if (pendingFiles.value.length > 0) {
+    // 如果有待发送文件，使用文件发送逻辑
+    await sendMessageWithFiles(userMessage, pendingFiles.value)
+    // 清空待发送文件列表
+    pendingFiles.value = []
+    return
+  }
+
   // 确保有当前聊天
   let chatId = chatStore.currentChatId
   if (!chatId) {
     chatId = chatStore.createChat(currentChatModelId.value, userMessage)
   }
 
-  // 添加用户消息
+  // 添加用户消息（无文件附件）
   chatStore.addMessage(chatId, {
     role: 'user',
     content: userMessage,
@@ -1263,6 +1281,47 @@ const generateContextAwareResponse = (
     <!-- 底部输入区 -->
     <div class="border-t border-gray-200 bg-white p-6">
       <div class="max-w-4xl mx-auto">
+        <!-- 待发送文件显示区域 -->
+        <div v-if="pendingFiles.length > 0" class="mb-4">
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center space-x-2">
+                <span class="text-blue-600 text-sm font-medium"
+                  >📎 待发送文件 ({{ pendingFiles.length }})</span
+                >
+              </div>
+              <button
+                @click="pendingFiles = []"
+                class="text-blue-500 hover:text-blue-700 text-sm transition-colors"
+                title="清空待发送文件"
+              >
+                清空
+              </button>
+            </div>
+            <div class="space-y-2">
+              <div
+                v-for="(file, index) in pendingFiles"
+                :key="index"
+                class="flex items-center justify-between bg-white rounded p-2 border border-blue-100"
+              >
+                <div class="flex items-center space-x-2 flex-1 min-w-0">
+                  <span class="text-blue-500">📄</span>
+                  <span class="text-sm text-gray-700 truncate">{{ file.name }}</span>
+                  <span class="text-xs text-gray-500">({{ formatFileSize(file.size) }})</span>
+                </div>
+                <button
+                  @click="pendingFiles.splice(index, 1)"
+                  class="text-gray-400 hover:text-red-500 transition-colors ml-2"
+                  title="移除此文件"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div class="text-xs text-blue-600 mt-2">💡 点击发送按钮将文件与消息一起发送给AI</div>
+          </div>
+        </div>
+
         <!-- 输入框区域 -->
         <div class="relative">
           <div
@@ -1294,14 +1353,21 @@ const generateContextAwareResponse = (
               @focus="handleInputFocus"
               @blur="handleInputBlur"
               type="text"
-              placeholder="请输入你的问题(Ctrl+Enter快捷)"
+              :placeholder="
+                pendingFiles.length > 0
+                  ? `已准备${pendingFiles.length}个文件，输入消息后点击发送(Ctrl+Enter)`
+                  : '请输入你的问题(Ctrl+Enter快捷)'
+              "
               class="flex-1 bg-transparent px-4 py-4 outline-none text-gray-700 placeholder-gray-400"
             />
             <div class="pr-4">
               <button
                 @click="sendMessage"
-                :disabled="loading || !inputMessage.trim()"
+                :disabled="loading || (!inputMessage.trim() && pendingFiles.length === 0)"
                 class="w-8 h-8 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg flex items-center justify-center transition-colors"
+                :title="
+                  pendingFiles.length > 0 ? `发送消息及${pendingFiles.length}个文件` : '发送消息'
+                "
               >
                 <template v-if="loading">
                   <div
