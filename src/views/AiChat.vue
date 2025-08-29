@@ -31,6 +31,9 @@ const streamingContent = ref('')
 const showSearchSuggestions = ref(false)
 const searchInputFocused = ref(false)
 
+// 搜索历史管理状态
+const showSearchHistoryModal = ref(false)
+
 // 当前会话的模型选择（计算属性）
 const currentChatModelId = computed(() => {
   return chatStore.currentChat?.selectedModelId || modelsStore.selectedModelId
@@ -384,6 +387,7 @@ const handleInputBlur = () => {
 const selectSearchSuggestion = (suggestion: string) => {
   inputMessage.value = suggestion
   showSearchSuggestions.value = false
+  showSearchHistoryModal.value = false
   searchInputFocused.value = false
 }
 
@@ -399,6 +403,11 @@ const clearSearchHistory = () => {
   searchStore.clearSearchHistory()
   showSearchSuggestions.value = false
   message.success('已清空搜索历史')
+}
+
+// 打开搜索历史管理弹窗
+const openSearchHistoryModal = () => {
+  showSearchHistoryModal.value = true
 }
 
 // 显示清空上下文确认对话框
@@ -1242,7 +1251,18 @@ const generateContextAwareResponse = (
           <div
             class="flex items-center bg-gray-50 rounded-2xl border border-gray-200 focus-within:border-primary-300 focus-within:ring-1 focus-within:ring-primary-200"
           >
-            <div class="pl-4">
+            <div class="pl-4 flex items-center space-x-2">
+              <!-- 搜索历史按钮 -->
+              <button
+                @click="openSearchHistoryModal"
+                class="w-6 h-6 bg-gradient-to-br from-blue-500 to-blue-600 rounded flex items-center justify-center hover:from-blue-600 hover:to-blue-700 transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
+                title="查看搜索历史 (共 {{ searchStore.searchHistory.length }} 条记录)"
+              >
+                <span class="text-white text-xs transition-transform duration-200 hover:scale-110"
+                  >🕰️</span
+                >
+              </button>
+              <!-- 附件按钮 -->
               <button
                 @click="openFileUploadModal"
                 class="w-6 h-6 bg-gradient-to-br from-primary-500 to-primary-600 rounded flex items-center justify-center hover:from-primary-600 hover:to-primary-700 transition-all duration-200 transform hover:scale-105"
@@ -1389,6 +1409,95 @@ const generateContextAwareResponse = (
           <a-button type="primary" danger @click="confirmClearContext"> 确认清空 </a-button>
         </div>
       </template>
+    </a-modal>
+
+    <!-- 搜索历史管理弹窗 -->
+    <a-modal
+      v-model:open="showSearchHistoryModal"
+      title="搜索历史管理"
+      centered
+      :width="600"
+      :footer="null"
+    >
+      <div class="py-4">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center space-x-2">
+            <span class="text-lg">🕰️</span>
+            <h3 class="text-lg font-medium text-gray-800">最近搜索</h3>
+            <span class="text-sm text-gray-500"
+              >(共 {{ searchStore.searchHistory.length }} 条记录)</span
+            >
+          </div>
+          <a-button
+            v-if="searchStore.searchHistory.length > 0"
+            danger
+            size="small"
+            @click="clearSearchHistory"
+          >
+            清空全部
+          </a-button>
+        </div>
+
+        <div v-if="searchStore.searchHistory.length === 0" class="text-center py-8">
+          <div class="text-gray-400 text-6xl mb-4 animate-pulse">🔍</div>
+          <p class="text-gray-500">暂无搜索历史</p>
+          <p class="text-gray-400 text-sm mt-1">开始搜索后将显示在这里</p>
+        </div>
+
+        <div v-else class="space-y-2 max-h-96 overflow-y-auto search-dropdown-scroll">
+          <div
+            v-for="(item, index) in searchStore.searchHistory"
+            :key="item.id"
+            class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all duration-200 group hover:shadow-sm"
+            :style="{ animationDelay: `${index * 50}ms` }"
+          >
+            <div
+              class="flex items-center flex-1 min-w-0 cursor-pointer"
+              @click="selectSearchSuggestion(item.content)"
+            >
+              <span class="text-gray-400 mr-3 transition-colors group-hover:text-blue-500">🔍</span>
+              <div class="flex-1 min-w-0">
+                <p
+                  class="text-gray-700 truncate font-medium group-hover:text-gray-900 transition-colors"
+                >
+                  {{ item.content }}
+                </p>
+                <p class="text-xs text-gray-500 mt-1">
+                  {{ new Date(item.timestamp).toLocaleString() }}
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2 ml-3">
+              <a-button
+                size="small"
+                type="text"
+                @click="selectSearchSuggestion(item.content)"
+                class="text-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+              >
+                使用
+              </a-button>
+              <a-button
+                size="small"
+                type="text"
+                danger
+                @click="removeSearchItem(item.id, $event)"
+                class="opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-50"
+              >
+                删除
+              </a-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-4 border-t border-gray-200">
+          <div class="text-xs text-gray-500 space-y-1">
+            <p>💡 <strong>使用提示：</strong></p>
+            <p class="ml-4">• 点击搜索记录可快速填入到输入框</p>
+            <p class="ml-4">• 搜索历史会自动去重并按时间排序</p>
+            <p class="ml-4">• 最多保存 50 条搜索记录</p>
+          </div>
+        </div>
+      </div>
     </a-modal>
 
     <!-- 文件上传弹窗 -->
