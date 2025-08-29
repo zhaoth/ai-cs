@@ -358,6 +358,18 @@ const getModelIcon = (modelId: string) => {
   return icons[modelId] || '🤖'
 }
 
+// 获取消息对应的模型图标（使用消息自己的模型信息）
+const getMessageModelIcon = (message: Message) => {
+  return getModelIcon(message.model || 'kimi')
+}
+
+// 获取消息对应的模型名称
+const getMessageModelName = (message: Message) => {
+  const modelId = message.model || 'kimi'
+  const model = modelsStore.models.find((m) => m.id === modelId)
+  return model?.name || 'AI助手'
+}
+
 // 处理模型选择变化
 const handleModelChange = (modelId: string) => {
   // 更新当前会话的模型选择
@@ -993,11 +1005,13 @@ const generateContextAwareResponse = (
           >
             <div class="flex items-start space-x-3 mb-4">
               <div class="text-2xl">
-                {{ message.role === 'user' ? '👤' : getModelIcon(currentChatModelId) }}
+                {{ message.role === 'user' ? '👤' : getMessageModelIcon(message) }}
               </div>
               <div class="flex-1 min-w-0">
                 <h4 class="font-medium text-gray-800 mb-2">
-                  {{ message.role === 'user' ? '你的问题' : `${currentChatModel.name} 的回复` }}
+                  {{
+                    message.role === 'user' ? '你的问题' : `${getMessageModelName(message)} 的回复`
+                  }}
                 </h4>
                 <!-- 消息内容显示 -->
                 <div class="relative">

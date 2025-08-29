@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import { PlusOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons-vue'
+import { ref } from 'vue'
+import {
+  PlusOutlined,
+  MenuFoldOutlined,
+  DeleteOutlined,
+  CheckSquareOutlined,
+  CloseOutlined,
+} from '@ant-design/icons-vue'
 import { useChatHistoryStore } from '@/stores/chatHistory'
+import { Modal } from 'ant-design-vue'
 
 // Props
 interface Props {
@@ -18,6 +26,10 @@ const emit = defineEmits<{
 // Store
 const chatStore = useChatHistoryStore()
 
+// 选择模式状态
+const isSelectionMode = ref(false)
+const selectedChats = ref<Set<string>>(new Set())
+
 // 新建对话
 const handleNewChat = () => {
   emit('newChat')
@@ -30,12 +42,84 @@ const handleToggle = () => {
 
 // 设置当前对话
 const setCurrentChat = (chatId: string) => {
-  chatStore.setCurrentChat(chatId)
+  if (isSelectionMode.value) {
+    // 选择模式下切换选中状态
+    if (selectedChats.value.has(chatId)) {
+      selectedChats.value.delete(chatId)
+    } else {
+      selectedChats.value.add(chatId)
+    }
+  } else {
+    // 正常模式下切换对话
+    chatStore.setCurrentChat(chatId)
+  }
 }
 
 // 清除所有对话
 const clearAllChats = () => {
-  chatStore.clearAllChats()
+  Modal.confirm({
+    title: '确认清除所有对话？',
+    content: '此操作不可恢复，将永久删除所有聊天记录。',
+    okText: '确认删除',
+    cancelText: '取消',
+    okType: 'danger',
+    onOk() {
+      chatStore.clearAllChats()
+    },
+  })
+}
+
+// 删除单个对话
+const deleteSingleChat = (chatId: string, event: Event) => {
+  event.stopPropagation()
+  Modal.confirm({
+    title: '确认删除此对话？',
+    content: '此操作不可恢复，将永久删除此聊天记录。',
+    okText: '确认删除',
+    cancelText: '取消',
+    okType: 'danger',
+    onOk() {
+      chatStore.deleteChat(chatId)
+    },
+  })
+}
+
+// 进入选择模式
+const enterSelectionMode = () => {
+  isSelectionMode.value = true
+  selectedChats.value.clear()
+}
+
+// 退出选择模式
+const exitSelectionMode = () => {
+  isSelectionMode.value = false
+  selectedChats.value.clear()
+}
+
+// 全选/取消全选
+const toggleSelectAll = () => {
+  if (selectedChats.value.size === chatStore.chats.length) {
+    selectedChats.value.clear()
+  } else {
+    chatStore.chats.forEach((chat) => selectedChats.value.add(chat.id))
+  }
+}
+
+// 批量删除选中的对话
+const deleteSelectedChats = () => {
+  if (selectedChats.value.size === 0) return
+
+  Modal.confirm({
+    title: `确认删除${selectedChats.value.size}个对话？`,
+    content: '此操作不可恢复，将永久删除选中的所有聊天记录。',
+    okText: '确认删除',
+    cancelText: '取消',
+    okType: 'danger',
+    onOk() {
+      chatStore.deleteChatsBatch(Array.from(selectedChats.value))
+      exitSelectionMode()
+    },
+  })
 }
 </script>
 
@@ -81,33 +165,104 @@ const clearAllChats = () => {
         >
           最近对话
         </span>
-        <div :title="collapsed ? '新建对话' : ''" class="relative">
-          <PlusOutlined
-            @click="handleNewChat"
-            class="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors"
-            :class="collapsed ? 'text-base' : ''"
-          />
+        <div class="flex items-center space-x-2">
+          <!-- 选择模式按钮 -->
+          <div
+            v-if="!collapsed && chatStore.chats.length > 0 && !isSelectionMode"
+            :title="'选择模式'"
+            class="relative"
+          >
+            <CheckSquareOutlined
+              @click="enterSelectionMode"
+              class="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors text-sm"
+            />
+          </div>
+          <!-- 新建对话按钮 -->
+          <div :title="collapsed ? '新建对话' : ''" class="relative">
+            <PlusOutlined
+              @click="handleNewChat"
+              class="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors"
+              :class="collapsed ? 'text-base' : ''"
+            />
+          </div>
         </div>
       </div>
+
+      <!-- 批量操作工具栏 -->
+      <div v-if="isSelectionMode && !collapsed" class="mb-3 p-2 bg-blue-50 rounded-lg">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <button
+              @click="toggleSelectAll"
+              class="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 rounded text-blue-700 transition-colors"
+            >
+              {{ selectedChats.size === chatStore.chats.length ? '取消全选' : '全选' }}
+            </button>
+            <span class="text-xs text-gray-600">已选中 {{ selectedChats.size }} 个</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button
+              @click="deleteSelectedChats"
+              :disabled="selectedChats.size === 0"
+              class="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed rounded text-red-700 transition-colors"
+            >
+              删除
+            </button>
+            <CloseOutlined
+              @click="exitSelectionMode"
+              class="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
       <div class="space-y-1">
         <div
           v-for="chat in chatStore.chats"
           :key="chat.id"
-          class="rounded-lg cursor-pointer transition-all duration-200"
+          class="rounded-lg cursor-pointer transition-all duration-200 group relative"
           :class="[
             chat.id === chatStore.currentChatId ? 'bg-gray-100' : 'hover:bg-gray-50',
             collapsed ? 'p-2 justify-center' : 'p-3',
+            isSelectionMode ? 'pl-8' : '',
           ]"
           @click="setCurrentChat(chat.id)"
           :title="collapsed ? chat.title : ''"
         >
+          <!-- 选择模式下的复选框 -->
+          <div
+            v-if="isSelectionMode && !collapsed"
+            class="absolute left-2 top-1/2 transform -translate-y-1/2"
+            @click.stop
+          >
+            <input
+              type="checkbox"
+              :checked="selectedChats.has(chat.id)"
+              @change="setCurrentChat(chat.id)"
+              class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+          </div>
+
           <div v-if="collapsed" class="flex justify-center">
             <div class="w-2 h-2 bg-primary-500 rounded-full"></div>
           </div>
-          <div v-else>
-            <div class="text-sm text-gray-700 truncate">{{ chat.title }}</div>
-            <div class="text-xs text-gray-400 mt-1">
-              {{ chat.model }} · {{ new Date(chat.updatedAt).toLocaleDateString() }}
+          <div v-else class="flex items-center justify-between">
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-gray-700 truncate">{{ chat.title }}</div>
+              <div class="text-xs text-gray-400 mt-1">
+                {{ chat.model }} · {{ new Date(chat.updatedAt).toLocaleDateString() }}
+              </div>
+            </div>
+            <!-- 单个删除按钮 -->
+            <div
+              v-if="!isSelectionMode"
+              class="opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+            >
+              <DeleteOutlined
+                @click="deleteSingleChat(chat.id, $event)"
+                class="text-gray-400 hover:text-red-500 cursor-pointer transition-colors text-sm p-1"
+                :title="'删除对话'"
+              />
             </div>
           </div>
         </div>
@@ -135,7 +290,10 @@ const clearAllChats = () => {
         class="flex items-center text-sm text-gray-600 cursor-pointer hover:text-gray-800 rounded-lg p-2 hover:bg-gray-50 transition-all duration-200"
         :class="collapsed ? 'justify-center' : 'space-x-2'"
         :title="collapsed ? '导入聊天对话' : ''"
-      ></div>
+      >
+        <span>↵</span>
+        <span v-show="!collapsed" class="transition-opacity duration-200">导入聊天对话</span>
+      </div>
     </div>
   </div>
 </template>
