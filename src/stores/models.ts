@@ -14,6 +14,16 @@ export interface ApiKey {
   key: string
 }
 
+// 余额信息接口
+export interface BalanceInfo {
+  provider: string
+  balance: number // 余额（人民币）
+  usage: number // 已使用（人民币）
+  total: number // 总额度（人民币）
+  lastUpdated: Date // 上次更新时间
+  status: 'active' | 'expired' | 'limited' | 'error' // 状态
+}
+
 export const useModelsStore = defineStore('models', () => {
   const models = ref<Model[]>([
     {
@@ -55,6 +65,26 @@ export const useModelsStore = defineStore('models', () => {
     // },
   ])
 
+  // 余额信息管理
+  const balances = ref<BalanceInfo[]>([
+    {
+      provider: 'Moonshot',
+      balance: 128.5,
+      usage: 21.5,
+      total: 150.0,
+      lastUpdated: new Date(),
+      status: 'active',
+    },
+    {
+      provider: 'DeepSeek',
+      balance: 85.2,
+      usage: 14.8,
+      total: 100.0,
+      lastUpdated: new Date(),
+      status: 'active',
+    },
+  ])
+
   const selectedModel = computed(() => {
     return models.value.find((model) => model.id === selectedModelId.value) || models.value[0]
   })
@@ -78,6 +108,46 @@ export const useModelsStore = defineStore('models', () => {
     }
   }
 
+  // 余额管理方法
+  function getBalance(provider: string): BalanceInfo | undefined {
+    return balances.value.find((balance) => balance.provider === provider)
+  }
+
+  function updateBalance(provider: string, balanceInfo: Partial<BalanceInfo>) {
+    const existingIndex = balances.value.findIndex((balance) => balance.provider === provider)
+    if (existingIndex >= 0) {
+      balances.value[existingIndex] = {
+        ...balances.value[existingIndex],
+        ...balanceInfo,
+        lastUpdated: new Date(),
+      }
+    } else {
+      balances.value.push({
+        provider,
+        balance: 0,
+        usage: 0,
+        total: 0,
+        lastUpdated: new Date(),
+        status: 'error',
+        ...balanceInfo,
+      })
+    }
+  }
+
+  // 获取当前模型的余额信息
+  const currentModelBalance = computed(() => {
+    const model = selectedModel.value
+    return model ? getBalance(model.provider) : undefined
+  })
+
+  // 获取所有模型的余额状态
+  const allBalances = computed(() => {
+    return models.value.map((model) => ({
+      model,
+      balance: getBalance(model.provider),
+    }))
+  })
+
   return {
     models,
     selectedModelId,
@@ -86,5 +156,10 @@ export const useModelsStore = defineStore('models', () => {
     apiKeys,
     getApiKey,
     setApiKey,
+    balances,
+    getBalance,
+    updateBalance,
+    currentModelBalance,
+    allBalances,
   }
 })

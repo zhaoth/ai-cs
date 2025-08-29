@@ -1,4 +1,5 @@
 import { useModelsStore } from '@/stores/models'
+import { usageTracker } from './usageTracker'
 
 // AI API 响应数据类型
 export interface ApiResponse {
@@ -320,7 +321,21 @@ export async function callUnifiedAiApi(
 ): Promise<string> {
   try {
     const provider = ApiProviderFactory.getProvider(modelId)
-    return await provider.call(messages, config)
+    const response = await provider.call(messages, config)
+
+    // 跟踪使用情况
+    const inputText = messages.map((m) => m.content).join(' ')
+    const outputText = response
+
+    // 获取提供商名称
+    const providerName =
+      modelId === 'kimi' ? 'Moonshot' : modelId === 'deepseek-v3.1' ? 'DeepSeek' : 'Unknown'
+
+    if (providerName !== 'Unknown') {
+      usageTracker.trackUsage(providerName, modelId, inputText, outputText)
+    }
+
+    return response
   } catch (error) {
     console.error(`统一 API 调用失败 [${modelId}]:`, error)
     throw error
