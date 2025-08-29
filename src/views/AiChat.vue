@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useChatHistoryStore } from '@/stores/chatHistory'
-import { useModelsStore, type Model } from '@/stores/models'
+import { useModelsStore } from '@/stores/models'
 import { type Message } from '@/stores/chatHistory'
 import { useSearchHistoryStore } from '@/stores/searchHistory'
 
@@ -211,12 +211,20 @@ const regenerateResponse = async (messageObj: Message) => {
   loading.value = true
 
   try {
+    // 重新生成时也要传递完整上下文
     let aiResponse
-    if (modelsStore.selectedModelId === 'kimi') {
-      aiResponse = await callKimiAPI()
-    } else {
+    try {
+      aiResponse = await callAiAPI(modelsStore.selectedModelId)
+    } catch (error) {
+      console.error('AI API调用失败，使用模拟回复:', error)
+      // API调用失败时使用上下文感知的模拟回复
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500))
-      aiResponse = generateModelResponse(modelsStore.selectedModel, userMessage.content)
+      const contextMessages =
+        chatStore.currentChat?.messages.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        })) || []
+      aiResponse = generateContextAwareResponse(modelsStore.selectedModelId, contextMessages)
     }
 
     // 添加新的AI回复
@@ -275,14 +283,20 @@ const sendMessage = async () => {
   loading.value = true
 
   try {
+    // 调用AI API，自动传递完整对话上下文
     let aiResponse
-    if (modelsStore.selectedModelId === 'kimi') {
-      // 调用真实的 Kimi API，传递完整上下文
-      aiResponse = await callKimiAPI()
-    } else {
-      // 其他模型的模拟回复
+    try {
+      aiResponse = await callAiAPI(modelsStore.selectedModelId)
+    } catch (error) {
+      console.error('AI API调用失败，使用模拟回复:', error)
+      // 如果API调用失败，降级到模拟回复但保持上下文感知
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500))
-      aiResponse = generateModelResponse(modelsStore.selectedModel, userMessage)
+      const contextMessages =
+        chatStore.currentChat?.messages.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        })) || []
+      aiResponse = generateContextAwareResponse(modelsStore.selectedModelId, contextMessages)
     }
 
     // 添加AI回复
@@ -304,26 +318,44 @@ const sendMessage = async () => {
   }
 }
 
-// 调用 Kimi API，传递完整对话上下文
-const callKimiAPI = async (): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('Moonshot')
-
-  if (!apiKey) {
-    throw new Error('Kimi API Key 未配置')
-  }
-
-  // 获取当前对话的所有消息
+// 通用AI API调用函数，支持所有模型的上下文传递
+const callAiAPI = async (modelId: string): Promise<string> => {
+  // 获取当前对话的所有消息作为上下文
   const currentMessages = chatStore.currentChat?.messages || []
 
-  // 将内部消息格式转换为 Kimi API 所需的格式
-  const messages = currentMessages.map((msg) => ({
+  // 将内部消息格式转换为API所需格式，保持上下文连续性
+  const contextMessages = currentMessages.map((msg) => ({
     role: msg.role,
     content: msg.content,
   }))
 
-  // 为避免上下文过长，只保留最近的 20 条消息
+  // 限制上下文长度以避免token超限，保留最近的对话
   const maxMessages = 20
-  const limitedMessages = messages.length > maxMessages ? messages.slice(-maxMessages) : messages
+  const limitedMessages =
+    contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
+
+  switch (modelId) {
+    case 'kimi':
+      return await callKimiAPI(limitedMessages)
+    case 'gpt-4':
+      return await callOpenAIAPI('gpt-4', limitedMessages)
+    case 'gpt-3.5-turbo':
+      return await callOpenAIAPI('gpt-3.5-turbo', limitedMessages)
+    case 'claude-2':
+      return await callClaudeAPI(limitedMessages)
+    default:
+      // 对于其他模型，生成带上下文理解的模拟回复
+      return generateContextAwareResponse(modelId, limitedMessages)
+  }
+}
+
+// 调用 Kimi API
+const callKimiAPI = async (messages: Array<{ role: string; content: string }>): Promise<string> => {
+  const apiKey = modelsStore.getApiKey('Moonshot')
+
+  if (!apiKey) {
+    throw new Error('Kimi API Key 未配置，请在模型设置中添加API密钥')
+  }
 
   try {
     const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
@@ -333,15 +365,19 @@ const callKimiAPI = async (): Promise<string> => {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'moonshot-v1-8k',
-        messages: limitedMessages,
+        model: 'kimi-k2-0711-preview',
+        messages: messages,
         temperature: 0.7,
         max_tokens: 1000,
+        stream: false,
       }),
     })
 
     if (!response.ok) {
-      throw new Error(`API 调用失败: ${response.status} ${response.statusText}`)
+      const errorData = await response.json().catch(() => null)
+      throw new Error(
+        `API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
+      )
     }
 
     const data = await response.json()
@@ -352,34 +388,145 @@ const callKimiAPI = async (): Promise<string> => {
   }
 }
 
-// 根据不同模型生成个性化回复
-const generateModelResponse = (model: Model, userMessage: string): string => {
-  const responses = {
+// 调用 OpenAI API (GPT-4, GPT-3.5-turbo)
+const callOpenAIAPI = async (
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> => {
+  const apiKey = modelsStore.getApiKey('OpenAI')
+
+  if (!apiKey) {
+    throw new Error('OpenAI API Key 未配置，请在模型设置中添加API密钥')
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(
+        `OpenAI API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
+      )
+    }
+
+    const data = await response.json()
+    return data.choices[0]?.message?.content || '抱歉，我无法回复您的消息。'
+  } catch (error) {
+    console.error('OpenAI API 调用失败:', error)
+    throw new Error(`OpenAI API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  }
+}
+
+// 调用 Claude API
+const callClaudeAPI = async (
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> => {
+  const apiKey = modelsStore.getApiKey('Anthropic')
+
+  if (!apiKey) {
+    throw new Error('Anthropic API Key 未配置，请在模型设置中添加API密钥')
+  }
+
+  try {
+    // Claude API 需要特殊的消息格式处理
+    const claudeMessages = messages.filter((msg) => msg.role !== 'system')
+    const systemMessage = messages.find((msg) => msg.role === 'system')?.content
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-2.1',
+        max_tokens: 1000,
+        system: systemMessage,
+        messages: claudeMessages,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(
+        `Claude API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
+      )
+    }
+
+    const data = await response.json()
+    return data.content[0]?.text || '抱歉，我无法回复您的消息。'
+  } catch (error) {
+    console.error('Claude API 调用失败:', error)
+    throw new Error(`Claude API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  }
+}
+
+// 生成具有上下文理解的智能回复（用于没有API密钥的模型）
+const generateContextAwareResponse = (
+  modelId: string,
+  messages: Array<{ role: string; content: string }>,
+): string => {
+  const latestMessage = messages[messages.length - 1]?.content || ''
+  // 分析最近6条消息的上下文以理解对话连续性
+  // const conversationHistory = messages.slice(-6)
+
+  // 分析对话上下文，理解用户意图
+  const hasContext = messages.length > 1
+  const previousUserQuestions = messages.filter((msg) => msg.role === 'user').slice(-3)
+  const conversationTopic = previousUserQuestions.length > 1 ? '继续我们之前的讨论' : '关于您的问题'
+
+  // 检测对话的连续性和主题
+  const contextualIntro = hasContext ? `基于我们之前的对话，我注意到您${conversationTopic}。` : ''
+
+  const model = modelsStore.models.find((m) => m.id === modelId)
+  const modelName = model?.name || 'AI助手'
+  const provider = model?.provider || ''
+
+  // 根据不同模型生成具有上下文感知的个性化回复
+  const contextualResponses = {
     kimi: [
-      `作为 Kimi，我很高兴为您解答！关于"${userMessage}"这个问题，让我基于我的长文本理解能力为您详细分析：\n\n从多个维度来看，这个问题涉及到几个关键要点...\n\n🧠 深度思考：我建议您可以从以下角度进一步探索这个话题。`,
-      `您好！我是 Kimi，Moonshot AI 的智能助手。针对您提到的"${userMessage}"，我可以为您提供一些深入的见解：\n\n📖 基于我的长文本理解能力，这个问题的核心在于...\n\n💡 建议：让我们一起深入探讨这个话题的各个层面。`,
-      `很有趣的问题！作为专注于长文本理解的 Kimi，我想从一个更全面的角度来回答您关于"${userMessage}"的疑问：\n\n🔍 深入分析表明...\n\n这是一个值得进一步讨论的话题，您还有什么想了解的吗？`,
+      `${contextualIntro}作为 Kimi，我基于长文本理解能力来分析您的问题"${latestMessage}"：\n\n🌙 通过分析我们的对话历史，我发现这个问题${hasContext ? '与之前的讨论有关联' : '很值得深入探讨'}...\n\n💡 基于上下文，我建议我们可以从以下几个维度来继续探讨这个话题。`,
+      `${contextualIntro}您好！作为 Moonshot AI 的 Kimi，我结合我们${hasContext ? '之前的交流' : '当前的对话'}来回答"${latestMessage}"：\n\n📖 考虑到${hasContext ? '我们讨论的连贯性' : '这个问题的复杂性'}，让我为您提供一个全面的分析...\n\n🔍 这确实是一个值得深入思考的问题！`,
     ],
     'gpt-4': [
-      `作为 GPT-4，我将为您提供详细和准确的回答。关于"${userMessage}"：\n\n这是一个很好的问题，让我从多个角度来分析...`,
-      `基于我的训练和知识，关于"${userMessage}"这个问题，我认为...\n\n希望这个回答对您有帮助！`,
+      `${contextualIntro}作为 GPT-4，我会基于${hasContext ? '我们的对话历史' : '您的问题'}来提供准确的回答。关于"${latestMessage}"：\n\n🤖 ${hasContext ? '结合之前的讨论，' : ''}这个问题涉及多个层面，让我为您详细分析...\n\n希望我的回答${hasContext ? '能够延续我们的对话并' : ''}对您有所帮助！`,
+      `${contextualIntro}基于我的训练数据和${hasContext ? '我们对话的上下文' : '对问题的理解'}，关于"${latestMessage}"：\n\n💭 ${hasContext ? '从我们之前的交流来看，' : ''}我认为这个问题的关键在于...\n\n让我们${hasContext ? '继续深入' : '一起'}探讨这个话题！`,
+    ],
+    'gpt-3.5-turbo': [
+      `${contextualIntro}我是 GPT-3.5 Turbo，${hasContext ? '结合我们之前的对话，' : ''}我来回答您关于"${latestMessage}"的问题：\n\n⚡ ${hasContext ? '考虑到对话的连续性，' : ''}我认为这个问题可以从以下角度来理解...\n\n${hasContext ? '基于我们的交流历史，' : ''}我建议您可以进一步考虑这些方面。`,
     ],
     'claude-2': [
-      `我是 Claude 2，很高兴为您解答。关于"${userMessage}"：\n\n我会以平衡和安全的方式来回应您的问题...`,
-      `作为注重安全性的 AI 助手，我对"${userMessage}"的看法是...`,
+      `${contextualIntro}我是 Claude 2，${hasContext ? '回顾我们的对话，' : ''}我很乐意以平衡的方式回答"${latestMessage}"：\n\n🧠 ${hasContext ? '从我们讨论的脉络来看，' : ''}我会谨慎地分析这个问题...\n\n作为注重安全和准确性的AI，我${hasContext ? '会确保回答与我们的对话保持一致' : '希望能够帮助到您'}。`,
     ],
     'llama-2': [
-      `作为开源的 Llama 2 模型，我很乐意帮助您。关于"${userMessage}"：\n\n基于我的开源训练数据...`,
-      `Llama 2 在这里为您服务！对于"${userMessage}"这个问题...`,
+      `${contextualIntro}作为开源的 Llama 2 模型，${hasContext ? '基于我们的交流历史，' : ''}我来回答"${latestMessage}"：\n\n🦙 ${hasContext ? '结合之前的讨论内容，' : ''}我基于开源训练数据的理解是...\n\n${hasContext ? '希望这个回答能够很好地承接我们的对话' : 'Llama 2 很高兴为您服务'}！`,
     ],
     'palm-2': [
-      `我是 Google 的 PaLM 2 模型。关于"${userMessage}"：\n\n让我运用我的多模态能力来回答...`,
-      `作为 PaLM 2，我可以为您提供以下见解关于"${userMessage}"...`,
+      `${contextualIntro}我是 Google 的 PaLM 2，${hasContext ? '综合我们的对话内容，' : ''}让我来回答"${latestMessage}"：\n\n🌟 ${hasContext ? '考虑到对话的整体背景，' : ''}我运用多模态理解能力来分析...\n\n${hasContext ? '基于我们之前的交流，' : ''}我认为这个问题还有很多值得探讨的地方。`,
     ],
   }
 
-  const modelResponses = responses[model.id as keyof typeof responses] || responses['gpt-4']
-  return modelResponses[Math.floor(Math.random() * modelResponses.length)]
+  const responses =
+    contextualResponses[modelId as keyof typeof contextualResponses] || contextualResponses['gpt-4']
+  const selectedResponse = responses[Math.floor(Math.random() * responses.length)]
+
+  // 如果没有API密钥，添加友好提示
+  const apiKeyHint = `\n\n💡 提示：当前使用的是模拟回复。如需获得真实的${modelName}回复，请在设置中配置${provider} API密钥。`
+
+  return selectedResponse + apiKeyHint
 }
 </script>
 

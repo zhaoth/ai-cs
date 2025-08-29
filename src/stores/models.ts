@@ -62,12 +62,21 @@ export const useModelsStore = defineStore('models', () => {
 
   const selectedModelId = ref<string>('kimi')
 
-  // API Keys 管理
+  // API Keys 管理 - 支持多种模型提供商
   const apiKeys = ref<ApiKey[]>([
     {
       provider: 'Moonshot',
       key: 'sk-D8ZaSoL1WeO2j2eFY1WPGTp2iLh4wxWtOLslyMPwGeWWfnR9',
     },
+    // 其他提供商的API密钥可以在这里添加
+    // {
+    //   provider: 'OpenAI',
+    //   key: '您的OpenAI-API-KEY',
+    // },
+    // {
+    //   provider: 'Anthropic',
+    //   key: '您的Anthropic-API-KEY',
+    // },
   ])
 
   const selectedModel = computed(() => {
