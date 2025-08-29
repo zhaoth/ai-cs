@@ -295,6 +295,7 @@ const callAiAPIWithFiles = async (modelId: string, files: FileAttachment[]): Pro
     case 'gpt-4':
     case 'gpt-3.5-turbo':
     case 'claude-2':
+    case 'deepseek-v3.1':
     default:
       return await callAiAPI(modelId) // 对于其他模型，使用原有逻辑
   }
@@ -464,6 +465,7 @@ const getModelIcon = (modelId: string) => {
     'claude-2': '🧠',
     'llama-2': '🦙',
     'palm-2': '🌟',
+    'deepseek-v3.1': '🔮',
   }
   return icons[modelId] || '🤖'
 }
@@ -826,6 +828,8 @@ const callAiAPI = async (modelId: string): Promise<string> => {
       return await callOpenAIAPI('gpt-3.5-turbo', limitedMessages)
     case 'claude-2':
       return await callClaudeAPI(limitedMessages)
+    case 'deepseek-v3.1':
+      return await callDeepSeekAPI(limitedMessages)
     default:
       // 对于其他模型，生成带上下文理解的模拟回复
       return generateContextAwareResponse(modelId, limitedMessages)
@@ -957,6 +961,47 @@ const callClaudeAPI = async (
   }
 }
 
+// 调用 DeepSeek API
+const callDeepSeekAPI = async (
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> => {
+  const apiKey = modelsStore.getApiKey('DeepSeek')
+
+  if (!apiKey) {
+    throw new Error('DeepSeek API Key 未配置，请在模型设置中添加API密钥')
+  }
+
+  try {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 1000,
+        stream: false,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(
+        `DeepSeek API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
+      )
+    }
+
+    const data = await response.json()
+    return data.choices[0]?.message?.content || '抱歉，我无法回复您的消息。'
+  } catch (error) {
+    console.error('DeepSeek API 调用失败:', error)
+    throw new Error(`DeepSeek API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  }
+}
+
 // 生成具有上下文理解的智能回复（用于没有API密钥的模型）
 const generateContextAwareResponse = (
   modelId: string,
@@ -999,6 +1044,10 @@ const generateContextAwareResponse = (
     ],
     'palm-2': [
       `${contextualIntro}我是 Google 的 PaLM 2，${hasContext ? '综合我们的对话内容，' : ''}让我来回答"${latestMessage}"：\n\n🌟 ${hasContext ? '考虑到对话的整体背景，' : ''}我运用多模态理解能力来分析...\n\n${hasContext ? '基于我们之前的交流，' : ''}我认为这个问题还有很多值得探讨的地方。`,
+    ],
+    'deepseek-v3.1': [
+      `${contextualIntro}我是 DeepSeek v3.1，${hasContext ? '结合我们之前的对话，' : ''}我来回答您关于"${latestMessage}"的问题：\n\n🔮 ${hasContext ? '基于我们的对话历史，' : ''}我运用强大的推理和代码能力来分析...\n\n🤖 ${hasContext ? '从我们的交流中，' : ''}我可以为您提供更深入的技术解决方案和理解。`,
+      `${contextualIntro}您好！作为 DeepSeek 的最新一代模型，${hasContext ? '我结合我们的对话上下文' : '我会运用先进的AI能力'}来回答"${latestMessage}"：\n\n🐎 ${hasContext ? '考虑到我们讨论的连贯性，' : ''}我将为您提供准确、深入的分析和建议...\n\n🎆 ${hasContext ? '基于我们之前的交流，' : ''}让我们一起探索这个问题的深层次解答！`,
     ],
   }
 

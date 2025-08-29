@@ -58,6 +58,13 @@ export const useModelsStore = defineStore('models', () => {
       description: 'Moonshot AI的智能助手，擅长长文本理解和多语言对话',
       capabilities: ['text', 'long-context'],
     },
+    {
+      id: 'deepseek-v3.1',
+      name: 'DeepSeek v3.1',
+      provider: 'DeepSeek',
+      description: 'DeepSeek最新一代模型，具备强大的推理和代码能力',
+      capabilities: ['text', 'code', 'reasoning'],
+    },
   ])
 
   const selectedModelId = ref<string>('kimi')
@@ -67,6 +74,10 @@ export const useModelsStore = defineStore('models', () => {
     {
       provider: 'Moonshot',
       key: 'sk-D8ZaSoL1WeO2j2eFY1WPGTp2iLh4wxWtOLslyMPwGeWWfnR9',
+    },
+    {
+      provider: 'DeepSeek',
+      key: 'sk-c25c66f14a0f411186b74fa5c93ec6db',
     },
     // 其他提供商的API密钥可以在这里添加
     // {
