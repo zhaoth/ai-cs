@@ -338,11 +338,6 @@ watch(inputMessage, (newValue) => {
 const getModelIcon = (modelId: string) => {
   const icons: Record<string, string> = {
     kimi: '🌙',
-    'gpt-4': '🤖',
-    'gpt-3.5-turbo': '⚡',
-    'claude-2': '🧠',
-    'llama-2': '🦙',
-    'palm-2': '🌟',
     'deepseek-v3.1': '🔮',
   }
   return icons[modelId] || '🤖'
@@ -743,22 +738,6 @@ const generateContextAwareResponse = (
       `${contextualIntro}作为 Kimi，我基于长文本理解能力来分析您的问题"${latestMessage}"：\n\n🌙 通过分析我们的对话历史，我发现这个问题${hasContext ? '与之前的讨论有关联' : '很值得深入探讨'}...\n\n💡 基于上下文，我建议我们可以从以下几个维度来继续探讨这个话题。`,
       `${contextualIntro}您好！作为 Moonshot AI 的 Kimi，我结合我们${hasContext ? '之前的交流' : '当前的对话'}来回答"${latestMessage}"：\n\n📖 考虑到${hasContext ? '我们讨论的连贯性' : '这个问题的复杂性'}，让我为您提供一个全面的分析...\n\n🔍 这确实是一个值得深入思考的问题！`,
     ],
-    'gpt-4': [
-      `${contextualIntro}作为 GPT-4，我会基于${hasContext ? '我们的对话历史' : '您的问题'}来提供准确的回答。关于"${latestMessage}"：\n\n🤖 ${hasContext ? '结合之前的讨论，' : ''}这个问题涉及多个层面，让我为您详细分析...\n\n希望我的回答${hasContext ? '能够延续我们的对话并' : ''}对您有所帮助！`,
-      `${contextualIntro}基于我的训练数据和${hasContext ? '我们对话的上下文' : '对问题的理解'}，关于"${latestMessage}"：\n\n💭 ${hasContext ? '从我们之前的交流来看，' : ''}我认为这个问题的关键在于...\n\n让我们${hasContext ? '继续深入' : '一起'}探讨这个话题！`,
-    ],
-    'gpt-3.5-turbo': [
-      `${contextualIntro}我是 GPT-3.5 Turbo，${hasContext ? '结合我们之前的对话，' : ''}我来回答您关于"${latestMessage}"的问题：\n\n⚡ ${hasContext ? '考虑到对话的连续性，' : ''}我认为这个问题可以从以下角度来理解...\n\n${hasContext ? '基于我们的交流历史，' : ''}我建议您可以进一步考虑这些方面。`,
-    ],
-    'claude-2': [
-      `${contextualIntro}我是 Claude 2，${hasContext ? '回顾我们的对话，' : ''}我很乐意以平衡的方式回答"${latestMessage}"：\n\n🧠 ${hasContext ? '从我们讨论的脉络来看，' : ''}我会谨慎地分析这个问题...\n\n作为注重安全和准确性的AI，我${hasContext ? '会确保回答与我们的对话保持一致' : '希望能够帮助到您'}。`,
-    ],
-    'llama-2': [
-      `${contextualIntro}作为开源的 Llama 2 模型，${hasContext ? '基于我们的交流历史，' : ''}我来回答"${latestMessage}"：\n\n🦙 ${hasContext ? '结合之前的讨论内容，' : ''}我基于开源训练数据的理解是...\n\n${hasContext ? '希望这个回答能够很好地承接我们的对话' : 'Llama 2 很高兴为您服务'}！`,
-    ],
-    'palm-2': [
-      `${contextualIntro}我是 Google 的 PaLM 2，${hasContext ? '综合我们的对话内容，' : ''}让我来回答"${latestMessage}"：\n\n🌟 ${hasContext ? '考虑到对话的整体背景，' : ''}我运用多模态理解能力来分析...\n\n${hasContext ? '基于我们之前的交流，' : ''}我认为这个问题还有很多值得探讨的地方。`,
-    ],
     'deepseek-v3.1': [
       `${contextualIntro}我是 DeepSeek v3.1，${hasContext ? '结合我们之前的对话，' : ''}我来回答您关于"${latestMessage}"的问题：\n\n🔮 ${hasContext ? '基于我们的对话历史，' : ''}我运用强大的推理和代码能力来分析...\n\n🤖 ${hasContext ? '从我们的交流中，' : ''}我可以为您提供更深入的技术解决方案和理解。`,
       `${contextualIntro}您好！作为 DeepSeek 的最新一代模型，${hasContext ? '我结合我们的对话上下文' : '我会运用先进的AI能力'}来回答"${latestMessage}"：\n\n🐎 ${hasContext ? '考虑到我们讨论的连贯性，' : ''}我将为您提供准确、深入的分析和建议...\n\n🎆 ${hasContext ? '基于我们之前的交流，' : ''}让我们一起探索这个问题的深层次解答！`,
@@ -766,7 +745,7 @@ const generateContextAwareResponse = (
   }
 
   const responses =
-    contextualResponses[modelId as keyof typeof contextualResponses] || contextualResponses['gpt-4']
+    contextualResponses[modelId as keyof typeof contextualResponses] || contextualResponses['kimi']
   const selectedResponse = responses[Math.floor(Math.random() * responses.length)]
 
   // 如果没有API密钥，添加友好提示

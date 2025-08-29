@@ -81,9 +81,6 @@ const result = await callAiApiWithFiles(modelId, messages, files)
 | --------------- | ------------- | --------- | ----------- | -------- |
 | `kimi`          | Kimi          | Moonshot  | ✅ 完整支持 | ✅       |
 | `deepseek-v3.1` | DeepSeek v3.1 | DeepSeek  | ⚠️ 基础支持 | ✅       |
-| `gpt-4`         | GPT-4         | OpenAI    | ⚠️ 基础支持 | ✅       |
-| `gpt-3.5-turbo` | GPT-3.5 Turbo | OpenAI    | ⚠️ 基础支持 | ✅       |
-| `claude-2`      | Claude 2      | Anthropic | ⚠️ 基础支持 | ✅       |
 
 ## 配置说明
 
@@ -93,8 +90,6 @@ const result = await callAiApiWithFiles(modelId, messages, files)
 
 - Kimi: Moonshot API Key
 - DeepSeek: DeepSeek API Key
-- GPT-4/3.5: OpenAI API Key
-- Claude: Anthropic API Key
 
 ### 请求配置
 

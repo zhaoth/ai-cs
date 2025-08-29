@@ -17,41 +17,6 @@ export interface ApiKey {
 export const useModelsStore = defineStore('models', () => {
   const models = ref<Model[]>([
     {
-      id: 'gpt-4',
-      name: 'GPT-4',
-      provider: 'OpenAI',
-      description: 'OpenAI最先进的模型，适用于复杂任务',
-      capabilities: ['text', 'code'],
-    },
-    {
-      id: 'gpt-3.5-turbo',
-      name: 'GPT-3.5 Turbo',
-      provider: 'OpenAI',
-      description: '快速且功能强大的模型，适用于大多数任务',
-      capabilities: ['text'],
-    },
-    {
-      id: 'claude-2',
-      name: 'Claude 2',
-      provider: 'Anthropic',
-      description: '平衡性能和安全性的对话AI',
-      capabilities: ['text'],
-    },
-    {
-      id: 'llama-2',
-      name: 'Llama 2',
-      provider: 'Meta',
-      description: '开源大语言模型',
-      capabilities: ['text'],
-    },
-    {
-      id: 'palm-2',
-      name: 'PaLM 2',
-      provider: 'Google',
-      description: 'Google的大型语言模型',
-      capabilities: ['text', 'code'],
-    },
-    {
       id: 'kimi',
       name: 'Kimi',
       provider: 'Moonshot',

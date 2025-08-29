@@ -250,86 +250,11 @@ export class DeepSeekApiProvider extends BaseApiProvider {
   }
 }
 
-// OpenAI API 提供商
-export class OpenAiApiProvider extends BaseApiProvider {
-  constructor(model: string = 'gpt-4') {
-    super({
-      endpoint: 'https://api.openai.com/v1/chat/completions',
-      model,
-      headers: {},
-    })
-  }
+// OpenAI API 提供商 - 已移除
+// export class OpenAiApiProvider extends BaseApiProvider { ... }
 
-  protected getApiKey(): string {
-    const apiKey = this.modelsStore.getApiKey('OpenAI')
-    if (!apiKey) {
-      throw new Error('OpenAI API Key 未配置，请在模型设置中添加API密钥')
-    }
-    return apiKey
-  }
-
-  protected getAuthHeaders(apiKey: string): Record<string, string> {
-    return {
-      Authorization: `Bearer ${apiKey}`,
-    }
-  }
-}
-
-// Claude API 提供商
-export class ClaudeApiProvider extends BaseApiProvider {
-  constructor() {
-    super({
-      endpoint: 'https://api.anthropic.com/v1/messages',
-      model: 'claude-2.1',
-      headers: {
-        'anthropic-version': '2023-06-01',
-      },
-      requestTransformer: (messages, config) => ({
-        model: 'claude-2.1',
-        max_tokens: config.maxTokens,
-        system: config.systemMessage,
-        messages: messages.filter((msg) => msg.role !== 'system'),
-        stream: config.stream,
-      }),
-      responseTransformer: (data) => data.content?.[0]?.text || '抱歉，我无法回复您的消息。',
-      streamResponseTransformer: (parsed: StreamResponse) =>
-        parsed.delta?.text || parsed.content_block?.text || null,
-    })
-  }
-
-  protected getApiKey(): string {
-    const apiKey = this.modelsStore.getApiKey('Anthropic')
-    if (!apiKey) {
-      throw new Error('Anthropic API Key 未配置，请在模型设置中添加API密钥')
-    }
-    return apiKey
-  }
-
-  protected getAuthHeaders(apiKey: string): Record<string, string> {
-    return {
-      'x-api-key': apiKey,
-    }
-  }
-
-  protected buildRequestBody(
-    messages: Array<{ role: string; content: string }>,
-    config: ApiRequestConfig,
-  ): Record<string, unknown> {
-    const requestConfig = { ...DEFAULT_CONFIG, ...config }
-
-    // Claude 需要特殊处理 system 消息
-    const systemMessage = messages.find((msg) => msg.role === 'system')?.content
-    const claudeMessages = messages.filter((msg) => msg.role !== 'system')
-
-    return {
-      model: this.config.model,
-      max_tokens: requestConfig.maxTokens,
-      system: systemMessage,
-      messages: claudeMessages,
-      stream: requestConfig.stream,
-    }
-  }
-}
+// Claude API 提供商 - 已移除
+// export class ClaudeApiProvider extends BaseApiProvider { ... }
 
 // API 提供商工厂
 export class ApiProviderFactory {
@@ -348,14 +273,8 @@ export class ApiProviderFactory {
         return new KimiApiProvider()
       case 'deepseek-v3.1':
         return new DeepSeekApiProvider()
-      case 'gpt-4':
-        return new OpenAiApiProvider('gpt-4')
-      case 'gpt-3.5-turbo':
-        return new OpenAiApiProvider('gpt-3.5-turbo')
-      case 'claude-2':
-        return new ClaudeApiProvider()
       default:
-        throw new Error(`不支持的模型: ${modelId}`)
+        throw new Error(`不支持的模型: ${modelId}，只支持 kimi 和 deepseek-v3.1`)
     }
   }
 

@@ -61,25 +61,13 @@ const generateModelResponse = (model: Model, userMessage: string): string => {
       `您好！我是 Kimi，Moonshot AI 的智能助手。针对您提到的"${userMessage}"，我可以为您提供一些深入的见解：\n\n📖 基于我的长文本理解能力，这个问题的核心在于...\n\n💡 建议：让我们一起深入探讨这个话题的各个层面。`,
       `很有趣的问题！作为专注于长文本理解的 Kimi，我想从一个更全面的角度来回答您关于"${userMessage}"的疑问：\n\n🔍 深入分析表明...\n\n这是一个值得进一步讨论的话题，您还有什么想了解的吗？`,
     ],
-    'gpt-4': [
-      `作为 GPT-4，我将为您提供详细和准确的回答。关于"${userMessage}"：\n\n这是一个很好的问题，让我从多个角度来分析...`,
-      `基于我的训练和知识，关于"${userMessage}"这个问题，我认为...\n\n希望这个回答对您有帮助！`,
-    ],
-    'claude-2': [
-      `我是 Claude 2，很高兴为您解答。关于"${userMessage}"：\n\n我会以平衡和安全的方式来回应您的问题...`,
-      `作为注重安全性的 AI 助手，我对"${userMessage}"的看法是...`,
-    ],
-    'llama-2': [
-      `作为开源的 Llama 2 模型，我很乐意帮助您。关于"${userMessage}"：\n\n基于我的开源训练数据...`,
-      `Llama 2 在这里为您服务！对于"${userMessage}"这个问题...`,
-    ],
-    'palm-2': [
-      `我是 Google 的 PaLM 2 模型。关于"${userMessage}"：\n\n让我运用我的多模态能力来回答...`,
-      `作为 PaLM 2，我可以为您提供以下见解关于"${userMessage}"...`,
+    'deepseek-v3.1': [
+      `我是 DeepSeek v3.1，很高兴为您解答。关于"${userMessage}"：\n\n作为具备强大推理和代码能力的AI模型，让我从多个角度来分析...`,
+      `您好！作为 DeepSeek 的最新一代模型，针对"${userMessage}"这个问题，我可以提供以下见解...\n\n🔮 让我们一起探索这个问题的深层次解答！`,
     ],
   }
 
-  const modelResponses = responses[model.id as keyof typeof responses] || responses['gpt-4']
+  const modelResponses = responses[model.id as keyof typeof responses] || responses['kimi']
   return modelResponses[Math.floor(Math.random() * modelResponses.length)]
 }
 
