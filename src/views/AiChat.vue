@@ -27,6 +27,9 @@ const chatContainer = ref<HTMLElement | null>(null)
 const streamingMessageId = ref<string | null>(null)
 const streamingContent = ref('')
 
+// 停止控制器
+const abortController = ref<AbortController | null>(null)
+
 // 搜索建议相关状态
 const showSearchSuggestions = ref(false)
 const searchInputFocused = ref(false)
@@ -377,6 +380,33 @@ const getMessageModelName = (message: Message) => {
   const modelId = message.model || 'kimi'
   const model = modelsStore.models.find((m) => m.id === modelId)
   return model?.name || 'AI助手'
+}
+
+// 停止当前发送的消息
+const stopGeneration = () => {
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+  }
+
+  // 在当前正在生成的消息后面添加停止标记
+  if (streamingMessageId.value && chatStore.currentChat) {
+    const chat = chatStore.currentChat
+    const messageIndex = chat.messages.findIndex((m) => m.id === streamingMessageId.value)
+    if (messageIndex !== -1) {
+      const currentContent = chat.messages[messageIndex].content
+      if (currentContent && !currentContent.includes('消息生成已停止')) {
+        chat.messages[messageIndex].content = currentContent + '\n\n[**消息生成已停止**]'
+      }
+    }
+  }
+
+  // 立即停止流式输出
+  loading.value = false
+  streamingMessageId.value = null
+  streamingContent.value = ''
+
+  message.info('已停止生成')
 }
 
 // 处理模型选择变化
@@ -990,24 +1020,35 @@ const generateContextAwareResponse = (
       <div class="max-w-4xl mx-auto space-y-6">
         <!-- 加载状态 -->
         <div v-if="loading" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 mb-6">
-          <div class="flex items-center space-x-3">
-            <div class="text-2xl">{{ getModelIcon(currentChatModelId) }}</div>
-            <div class="flex-1">
-              <h4 class="font-medium text-gray-800 mb-2">
-                {{ currentChatModel.name }} 正在思考...
-              </h4>
-              <div class="flex space-x-2">
-                <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
-                <div
-                  class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"
-                  style="animation-delay: 0.2s"
-                ></div>
-                <div
-                  class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"
-                  style="animation-delay: 0.4s"
-                ></div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="text-2xl">{{ getModelIcon(currentChatModelId) }}</div>
+              <div class="flex-1">
+                <h4 class="font-medium text-gray-800 mb-2">
+                  {{ currentChatModel.name }} 正在思考...
+                </h4>
+                <div class="flex space-x-2">
+                  <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
+                  <div
+                    class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"
+                    style="animation-delay: 0.2s"
+                  ></div>
+                  <div
+                    class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"
+                    style="animation-delay: 0.4s"
+                  ></div>
+                </div>
               </div>
             </div>
+            <!-- 停止按钮 -->
+            <button
+              @click="stopGeneration"
+              class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors flex items-center space-x-2"
+              title="停止生成"
+            >
+              <span>⏹️</span>
+              <span>停止</span>
+            </button>
           </div>
         </div>
 
@@ -1245,17 +1286,16 @@ const generateContextAwareResponse = (
                 </div>
 
                 <button
-                  @click="regenerateResponse(message)"
-                  :disabled="loading"
+                  @click="loading ? stopGeneration() : regenerateResponse(message)"
                   class="flex items-center space-x-1 text-sm transition-colors"
                   :class="
                     loading
-                      ? 'text-gray-400 cursor-not-allowed'
+                      ? 'text-red-600 hover:text-red-700'
                       : 'text-blue-600 hover:text-blue-700'
                   "
                 >
-                  <span>{{ loading ? '⏳' : '🔄' }}</span>
-                  <span>{{ loading ? '生成中...' : '重新生成' }}</span>
+                  <span>{{ loading ? '⏹️' : '🔄' }}</span>
+                  <span>{{ loading ? '停止生成' : '重新生成' }}</span>
                 </button>
               </div>
             </div>
@@ -1349,30 +1389,43 @@ const generateContextAwareResponse = (
             </div>
             <input
               v-model="inputMessage"
-              @keydown.ctrl.enter="sendMessage"
+              @keydown.ctrl.enter="loading ? stopGeneration() : sendMessage()"
               @focus="handleInputFocus"
               @blur="handleInputBlur"
               type="text"
               :placeholder="
-                pendingFiles.length > 0
-                  ? `已准备${pendingFiles.length}个文件，输入消息后点击发送(Ctrl+Enter)`
-                  : '请输入你的问题(Ctrl+Enter快捷)'
+                loading
+                  ? '正在生成中，按Ctrl+Enter停止'
+                  : pendingFiles.length > 0
+                    ? `已准备${pendingFiles.length}个文件，输入消息后点击发送(Ctrl+Enter)`
+                    : '请输入你的问题(Ctrl+Enter快捷)'
               "
               class="flex-1 bg-transparent px-4 py-4 outline-none text-gray-700 placeholder-gray-400"
             />
             <div class="pr-4">
               <button
-                @click="sendMessage"
-                :disabled="loading || (!inputMessage.trim() && pendingFiles.length === 0)"
-                class="w-8 h-8 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg flex items-center justify-center transition-colors"
+                @click="loading ? stopGeneration() : sendMessage()"
+                :disabled="!loading && !inputMessage.trim() && pendingFiles.length === 0"
+                class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                :class="
+                  loading
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : 'bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed'
+                "
                 :title="
-                  pendingFiles.length > 0 ? `发送消息及${pendingFiles.length}个文件` : '发送消息'
+                  loading
+                    ? '停止生成'
+                    : pendingFiles.length > 0
+                      ? `发送消息及${pendingFiles.length}个文件`
+                      : '发送消息'
                 "
               >
                 <template v-if="loading">
-                  <div
-                    class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
-                  ></div>
+                  <!-- 停止图标 -->
+                  <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
                 </template>
                 <template v-else>
                   <svg
