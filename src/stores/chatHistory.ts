@@ -131,6 +131,26 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     currentChatId.value = null
   }
 
+  // 删除单个消息
+  function deleteMessage(chatId: string, messageId: string): boolean {
+    const chat = chats.value.find((c) => c.id === chatId)
+    if (chat) {
+      const messageIndex = chat.messages.findIndex((m) => m.id === messageId)
+      if (messageIndex !== -1) {
+        chat.messages.splice(messageIndex, 1)
+        chat.updatedAt = new Date()
+
+        // 如果删除后没有消息了，重置标题
+        if (chat.messages.length === 0) {
+          chat.title = '新对话'
+        }
+
+        return true
+      }
+    }
+    return false
+  }
+
   // 清空当前对话的所有消息
   function clearCurrentChatMessages() {
     if (currentChatId.value) {
@@ -199,6 +219,7 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     currentChatId,
     createChat,
     addMessage,
+    deleteMessage,
     setCurrentChat,
     deleteChat,
     clearAllChats,

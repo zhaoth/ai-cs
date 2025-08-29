@@ -244,8 +244,8 @@ const callAiAPIWithFiles = async (modelId: string, files: FileAttachment[]): Pro
       }
     })
 
-  // 限制上下文长度
-  const maxMessages = 20
+  // 限制上下文长度，最多读取2个对话（用户+AI = 4条消息）
+  const maxMessages = 4
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
@@ -558,6 +558,21 @@ const copyMarkdownMessage = async (content: string) => {
   }
 }
 
+// 删除单个消息
+const deleteMessage = (messageId: string) => {
+  if (!chatStore.currentChatId) {
+    message.error('没有当前聊天')
+    return
+  }
+
+  const success = chatStore.deleteMessage(chatStore.currentChatId, messageId)
+  if (success) {
+    message.success('消息已删除')
+  } else {
+    message.error('删除失败')
+  }
+}
+
 // 重新生成回复（支持流式显示）
 const regenerateResponse = async (messageObj: Message) => {
   if (!chatStore.currentChatId || loading.value) return
@@ -822,8 +837,8 @@ const callAiAPIStreaming = async (
       content: msg.content,
     }))
 
-  // 限制上下文长度以避免token超限，保留最近的对话
-  const maxMessages = 20
+  // 限制上下文长度，最多读取2个对话（用户+AI = 4条消息）
+  const maxMessages = 4
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
@@ -856,8 +871,8 @@ const callAiAPI = async (modelId: string): Promise<string> => {
       content: msg.content,
     }))
 
-  // 限制上下文长度以避免token超限，保留最近的对话
-  const maxMessages = 20
+  // 限制上下文长度，最多读取2个对话（用户+AI = 4条消息）
+  const maxMessages = 4
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
@@ -1078,111 +1093,127 @@ const generateContextAwareResponse = (
                     </div>
                   </div>
                 </div>
-                <div class="mt-3 text-xs text-gray-400">
-                  {{ new Date(message.timestamp).toLocaleTimeString() }}
-                </div>
               </div>
             </div>
-            <div
-              v-if="message.role === 'assistant'"
-              class="flex items-center justify-end space-x-3 pt-3 border-t border-gray-100"
-            >
-              <button
-                @click="likeMessage(message.id)"
-                class="flex items-center space-x-1 text-sm transition-colors"
-                :class="
-                  messageFeedback[message.id]?.liked
-                    ? 'text-green-600 hover:text-green-700'
-                    : 'text-gray-500 hover:text-gray-700'
-                "
-              >
-                <span>{{ messageFeedback[message.id]?.liked ? '👍' : '👍' }}</span>
-                <span>{{ messageFeedback[message.id]?.liked ? '已点赞' : '点赞' }}</span>
-              </button>
-
-              <button
-                @click="dislikeMessage(message.id)"
-                class="flex items-center space-x-1 text-sm transition-colors"
-                :class="
-                  messageFeedback[message.id]?.disliked
-                    ? 'text-red-600 hover:text-red-700'
-                    : 'text-gray-500 hover:text-gray-700'
-                "
-              >
-                <span>{{ messageFeedback[message.id]?.disliked ? '👎' : '👎' }}</span>
-                <span>{{ messageFeedback[message.id]?.disliked ? '已反对' : '反对' }}</span>
-              </button>
-
-              <!-- 复制按钮区域 -->
-              <div class="relative">
-                <!-- Markdown 内容的复制按钮（支持两种格式） -->
-                <template v-if="messageHasMarkdown(message.content)">
-                  <button
-                    @click="toggleCopyOptions(message.id)"
-                    class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                    :class="{ 'text-blue-600': showCopyOptions[message.id] }"
-                  >
-                    <span>📋</span>
-                    <span>复制</span>
-                    <span class="text-xs ml-1">▼</span>
-                  </button>
-
-                  <!-- 复制选项下拉菜单 -->
-                  <div
-                    v-if="showCopyOptions[message.id]"
-                    class="absolute bottom-full mb-2 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-36 copy-options-dropdown"
-                  >
-                    <button
-                      @click="
-                        () => {
-                          copyMarkdownMessage(message.content)
-                          showCopyOptions[message.id] = false
-                        }
-                      "
-                      class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center space-x-2 copy-button-hover"
-                    >
-                      <span>📄</span>
-                      <span>Markdown 格式</span>
-                    </button>
-                    <div class="border-t border-gray-100 my-1"></div>
-                    <button
-                      @click="
-                        () => {
-                          copyMessage(message.content)
-                          showCopyOptions[message.id] = false
-                        }
-                      "
-                      class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center space-x-2 copy-button-hover"
-                    >
-                      <span>📝</span>
-                      <span>纯文本格式</span>
-                    </button>
-                  </div>
-                </template>
-
-                <!-- 非 Markdown 内容的普通复制按钮 -->
-                <template v-else>
-                  <button
-                    @click="copyMessage(message.content)"
-                    class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                  >
-                    <span>📋</span>
-                    <span>复制</span>
-                  </button>
-                </template>
+            <!-- 消息操作按钮区域（每个消息都有） -->
+            <div class="flex items-center justify-between pt-3 border-t border-gray-100">
+              <!-- 时间和删除按钮 -->
+              <div class="flex items-center space-x-2">
+                <div class="text-xs text-gray-400">
+                  {{ new Date(message.timestamp).toLocaleTimeString() }}
+                </div>
+                <!-- 删除按钮（所有消息都有） -->
+                <button
+                  @click="deleteMessage(message.id)"
+                  class="flex items-center space-x-1 text-xs text-red-500 hover:text-red-700 transition-colors opacity-0 group-hover:opacity-100"
+                  title="删除这条消息"
+                >
+                  <span>🗑️</span>
+                  <span>删除</span>
+                </button>
               </div>
 
-              <button
-                @click="regenerateResponse(message)"
-                :disabled="loading"
-                class="flex items-center space-x-1 text-sm transition-colors"
-                :class="
-                  loading ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700'
-                "
-              >
-                <span>{{ loading ? '⏳' : '🔄' }}</span>
-                <span>{{ loading ? '生成中...' : '重新生成' }}</span>
-              </button>
+              <!-- AI回复的交互按钮 -->
+              <div v-if="message.role === 'assistant'" class="flex items-center space-x-3">
+                <button
+                  @click="likeMessage(message.id)"
+                  class="flex items-center space-x-1 text-sm transition-colors"
+                  :class="
+                    messageFeedback[message.id]?.liked
+                      ? 'text-green-600 hover:text-green-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  "
+                >
+                  <span>{{ messageFeedback[message.id]?.liked ? '👍' : '👍' }}</span>
+                  <span>{{ messageFeedback[message.id]?.liked ? '已点赞' : '点赞' }}</span>
+                </button>
+
+                <button
+                  @click="dislikeMessage(message.id)"
+                  class="flex items-center space-x-1 text-sm transition-colors"
+                  :class="
+                    messageFeedback[message.id]?.disliked
+                      ? 'text-red-600 hover:text-red-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  "
+                >
+                  <span>{{ messageFeedback[message.id]?.disliked ? '👎' : '👎' }}</span>
+                  <span>{{ messageFeedback[message.id]?.disliked ? '已反对' : '反对' }}</span>
+                </button>
+
+                <!-- 复制按钮区域 -->
+                <div class="relative">
+                  <!-- Markdown 内容的复制按钮（支持两种格式） -->
+                  <template v-if="messageHasMarkdown(message.content)">
+                    <button
+                      @click="toggleCopyOptions(message.id)"
+                      class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                      :class="{ 'text-blue-600': showCopyOptions[message.id] }"
+                    >
+                      <span>📋</span>
+                      <span>复制</span>
+                      <span class="text-xs ml-1">▼</span>
+                    </button>
+
+                    <!-- 复制选项下拉菜单 -->
+                    <div
+                      v-if="showCopyOptions[message.id]"
+                      class="absolute bottom-full mb-2 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-36 copy-options-dropdown"
+                    >
+                      <button
+                        @click="
+                          () => {
+                            copyMarkdownMessage(message.content)
+                            showCopyOptions[message.id] = false
+                          }
+                        "
+                        class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center space-x-2 copy-button-hover"
+                      >
+                        <span>📄</span>
+                        <span>Markdown 格式</span>
+                      </button>
+                      <div class="border-t border-gray-100 my-1"></div>
+                      <button
+                        @click="
+                          () => {
+                            copyMessage(message.content)
+                            showCopyOptions[message.id] = false
+                          }
+                        "
+                        class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center space-x-2 copy-button-hover"
+                      >
+                        <span>📝</span>
+                        <span>纯文本格式</span>
+                      </button>
+                    </div>
+                  </template>
+
+                  <!-- 非 Markdown 内容的普通复制按钮 -->
+                  <template v-else>
+                    <button
+                      @click="copyMessage(message.content)"
+                      class="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                    >
+                      <span>📋</span>
+                      <span>复制</span>
+                    </button>
+                  </template>
+                </div>
+
+                <button
+                  @click="regenerateResponse(message)"
+                  :disabled="loading"
+                  class="flex items-center space-x-1 text-sm transition-colors"
+                  :class="
+                    loading
+                      ? 'text-gray-400 cursor-not-allowed'
+                      : 'text-blue-600 hover:text-blue-700'
+                  "
+                >
+                  <span>{{ loading ? '⏳' : '🔄' }}</span>
+                  <span>{{ loading ? '生成中...' : '重新生成' }}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
