@@ -122,7 +122,7 @@ abstract class BaseApiProvider {
       while (true) {
         // 检查是否被中止
         if (abortController?.signal.aborted) {
-          throw new Error('请求已被用户取消')
+          break // 不抛出错误，直接跳出循环，返回已生成的内容
         }
 
         const { done, value } = await reader.read()
@@ -156,10 +156,18 @@ abstract class BaseApiProvider {
           }
         }
       }
+    } catch (error) {
+      // 如果是取消错误，不抛出，只记录状态
+      if (error instanceof Error && error.name === 'AbortError') {
+        // 静默处理取消错误
+      } else {
+        throw error // 其他错误继续抛出
+      }
     } finally {
       reader.releaseLock()
     }
 
+    // 无论是否被中止，都返回已生成的内容
     return fullContent
   }
 
