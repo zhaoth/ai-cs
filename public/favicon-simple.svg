@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- 背景 -->
+  <rect width="16" height="16" rx="3" fill="#22c55e" />
+  
+  <!-- 字母 H -->
+  <path d="M4 3.5V12h1.5V8.5h5V12H12V3.5h-1.5V7h-5V3.5H4z" fill="white" />
+</svg>

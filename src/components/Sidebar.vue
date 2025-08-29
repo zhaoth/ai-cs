@@ -134,7 +134,8 @@ const deleteSelectedChats = () => {
         <!-- Logo 区域 -->
         <div class="flex items-center space-x-2 flex-1">
           <div
-            class="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center"
+            class="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center cursor-pointer"
+            @click="handleToggle"
           >
             <span class="text-white font-bold text-sm">H</span>
           </div>
@@ -157,7 +158,7 @@ const deleteSelectedChats = () => {
     </div>
 
     <!-- 对话历史 -->
-    <div class="flex-1 p-4">
+    <div class="flex-1 p-4 flex flex-col overflow-hidden">
       <div class="flex items-center justify-between mb-3">
         <span
           v-show="!collapsed"
@@ -216,60 +217,62 @@ const deleteSelectedChats = () => {
         </div>
       </div>
 
-      <div class="space-y-1">
-        <div
-          v-for="chat in chatStore.chats"
-          :key="chat.id"
-          class="rounded-lg cursor-pointer transition-all duration-200 group relative"
-          :class="[
-            chat.id === chatStore.currentChatId ? 'bg-gray-100' : 'hover:bg-gray-50',
-            collapsed ? 'p-2 justify-center' : 'p-3',
-            isSelectionMode ? 'pl-8' : '',
-          ]"
-          @click="setCurrentChat(chat.id)"
-          :title="collapsed ? chat.title : ''"
-        >
-          <!-- 选择模式下的复选框 -->
+      <div class="overflow-y-auto flex-1 pr-1 chat-scroll">
+        <div class="space-y-1">
           <div
-            v-if="isSelectionMode && !collapsed"
-            class="absolute left-2 top-1/2 transform -translate-y-1/2"
-            @click.stop
+            v-for="chat in chatStore.chats"
+            :key="chat.id"
+            class="rounded-lg cursor-pointer transition-all duration-200 group relative"
+            :class="[
+              chat.id === chatStore.currentChatId ? 'bg-gray-100' : 'hover:bg-gray-50',
+              collapsed ? 'p-2 justify-center' : 'p-3',
+              isSelectionMode ? 'pl-8' : '',
+            ]"
+            @click="setCurrentChat(chat.id)"
+            :title="collapsed ? chat.title : ''"
           >
-            <input
-              type="checkbox"
-              :checked="selectedChats.has(chat.id)"
-              @change="setCurrentChat(chat.id)"
-              class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-          </div>
-
-          <div v-if="collapsed" class="flex justify-center">
-            <div class="w-2 h-2 bg-primary-500 rounded-full"></div>
-          </div>
-          <div v-else class="flex items-center justify-between">
-            <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 truncate">{{ chat.title }}</div>
-              <div class="text-xs text-gray-400 mt-1">
-                {{ chat.model }} · {{ new Date(chat.updatedAt).toLocaleDateString() }}
-              </div>
-            </div>
-            <!-- 单个删除按钮 -->
+            <!-- 选择模式下的复选框 -->
             <div
-              v-if="!isSelectionMode"
-              class="opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+              v-if="isSelectionMode && !collapsed"
+              class="absolute left-2 top-1/2 transform -translate-y-1/2"
+              @click.stop
             >
-              <DeleteOutlined
-                @click="deleteSingleChat(chat.id, $event)"
-                class="text-gray-400 hover:text-red-500 cursor-pointer transition-colors text-sm p-1"
-                :title="'删除对话'"
+              <input
+                type="checkbox"
+                :checked="selectedChats.has(chat.id)"
+                @change="setCurrentChat(chat.id)"
+                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               />
             </div>
+
+            <div v-if="collapsed" class="flex justify-center">
+              <div class="w-2 h-2 bg-primary-500 rounded-full"></div>
+            </div>
+            <div v-else class="flex items-center justify-between">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm text-gray-700 truncate">{{ chat.title }}</div>
+                <div class="text-xs text-gray-400 mt-1">
+                  {{ chat.model }} · {{ new Date(chat.updatedAt).toLocaleDateString() }}
+                </div>
+              </div>
+              <!-- 单个删除按钮 -->
+              <div
+                v-if="!isSelectionMode"
+                class="opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+              >
+                <DeleteOutlined
+                  @click="deleteSingleChat(chat.id, $event)"
+                  class="text-gray-400 hover:text-red-500 cursor-pointer transition-colors text-sm p-1"
+                  :title="'删除对话'"
+                />
+              </div>
+            </div>
           </div>
-        </div>
-        <!-- 无对话时的提示 -->
-        <div v-if="chatStore.chats.length === 0 && !collapsed" class="text-center py-8">
-          <div class="text-gray-400 text-sm">暂无对话历史</div>
-          <div class="text-gray-400 text-xs mt-1">点击上方 + 号开始新对话</div>
+          <!-- 无对话时的提示 -->
+          <div v-if="chatStore.chats.length === 0 && !collapsed" class="text-center py-8">
+            <div class="text-gray-400 text-sm">暂无对话历史</div>
+            <div class="text-gray-400 text-xs mt-1">点击上方 + 号开始新对话</div>
+          </div>
         </div>
       </div>
     </div>
@@ -279,21 +282,39 @@ const deleteSelectedChats = () => {
       <div
         v-if="chatStore.chats.length > 0"
         @click="clearAllChats"
-        class="flex items-center text-sm text-red-500 cursor-pointer hover:text-red-700 mb-2 rounded-lg p-2 hover:bg-red-50 transition-all duration-200"
+        class="flex items-center text-sm text-red-500 cursor-pointer hover:text-red-700 rounded-lg p-2 hover:bg-red-50 transition-all duration-200"
         :class="collapsed ? 'justify-center' : 'space-x-2'"
         :title="collapsed ? '清除所有对话' : ''"
       >
         <span>🗑️</span>
         <span v-show="!collapsed" class="transition-opacity duration-200">清除所有对话</span>
       </div>
-      <div
-        class="flex items-center text-sm text-gray-600 cursor-pointer hover:text-gray-800 rounded-lg p-2 hover:bg-gray-50 transition-all duration-200"
-        :class="collapsed ? 'justify-center' : 'space-x-2'"
-        :title="collapsed ? '导入聊天对话' : ''"
-      >
-        <span>↵</span>
-        <span v-show="!collapsed" class="transition-opacity duration-200">导入聊天对话</span>
-      </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 聊天对话区域滚动条样式 */
+.chat-scroll {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: rgba(34, 197, 94, 0.3) transparent; /* Firefox */
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(45deg, rgba(74, 222, 128, 0.3), rgba(22, 163, 74, 0.3));
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(45deg, rgba(74, 222, 128, 0.5), rgba(22, 163, 74, 0.5));
+}
+</style>

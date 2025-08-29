@@ -1380,7 +1380,7 @@ const generateContextAwareResponse = (
         <!-- 输入框区域 -->
         <div class="relative">
           <div
-            class="flex items-center bg-gray-50 rounded-2xl border border-gray-200 focus-within:border-primary-300 focus-within:ring-1 focus-within:ring-primary-200"
+            class="flex items-center bg-gray-50 rounded-2xl focus-within:ring-1 focus-within:ring-primary-200 transition-all duration-300 ease-in-out transform"
           >
             <div class="pl-4 flex items-center space-x-2">
               <!-- 搜索历史按钮 -->
@@ -1415,7 +1415,7 @@ const generateContextAwareResponse = (
                     ? `已准备${pendingFiles.length}个文件，输入消息后点击发送(Ctrl+Enter)`
                     : '请输入你的问题(Ctrl+Enter快捷)'
               "
-              class="flex-1 bg-transparent px-4 py-4 outline-none text-gray-700 placeholder-gray-400"
+              class="flex-1 bg-transparent px-4 py-4 outline-none text-gray-700 placeholder-gray-400 transition-all duration-300 ease-in-out"
             />
             <div class="pr-4">
               <button
@@ -1783,5 +1783,18 @@ button:active {
 /* 输入框焦点效果 */
 input:focus {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  transform: translateY(-2px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 输入框容器动画效果 */
+.flex.items-center.bg-gray-50.rounded-2xl {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.flex.items-center.bg-gray-50.rounded-2xl:focus-within {
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  transform: translateY(-2px);
 }
 </style>

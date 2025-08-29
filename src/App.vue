@@ -91,9 +91,6 @@ onUnmounted(() => {
 
     <!-- 主内容区 -->
     <div class="flex-1 flex flex-col relative">
-      <!-- 浮动展开按钮 -->
-      <FloatingButton :visible="sidebarCollapsed" @toggle="toggleSidebar" />
-
       <!-- 路由组件渲染区域 -->
       <router-view />
     </div>
