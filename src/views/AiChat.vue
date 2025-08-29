@@ -6,8 +6,6 @@ import { useModelsStore } from '@/stores/models'
 import { type Message, type FileAttachment } from '@/stores/chatHistory'
 import { useSearchHistoryStore } from '@/stores/searchHistory'
 import FileUpload from '@/components/FileUpload.vue'
-import BalanceDisplay from '@/components/BalanceDisplay.vue'
-import BalanceWarning from '@/components/BalanceWarning.vue'
 import {
   renderMarkdownSync as renderMarkdown,
   hasMarkdownSyntax,
@@ -1380,7 +1378,7 @@ const generateContextAwareResponse = (
         <!-- 输入框区域 -->
         <div class="relative">
           <div
-            class="flex items-center bg-gray-50 rounded-2xl focus-within:ring-1 focus-within:ring-primary-200 transition-all duration-300 ease-in-out transform"
+            class="flex items-center bg-gray-50 rounded-2xl transition-all duration-300 ease-in-out"
           >
             <div class="pl-4 flex items-center space-x-2">
               <!-- 搜索历史按钮 -->
@@ -1415,7 +1413,7 @@ const generateContextAwareResponse = (
                     ? `已准备${pendingFiles.length}个文件，输入消息后点击发送(Ctrl+Enter)`
                     : '请输入你的问题(Ctrl+Enter快捷)'
               "
-              class="flex-1 bg-transparent px-4 py-4 outline-none text-gray-700 placeholder-gray-400 transition-all duration-300 ease-in-out"
+              class="flex-1 bg-transparent px-4 py-4 outline-none border-none ring-0 ring-offset-0 text-gray-700 placeholder-gray-400 focus:ring-0 focus:ring-offset-0 focus:border-transparent focus-visible:outline-none focus-visible:ring-0"
             />
             <div class="pr-4">
               <button

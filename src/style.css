@@ -405,3 +405,17 @@ html {
   right: 0.5rem;
   z-index: 10;
 }
+
+/* 移除输入框focus时的边框 */
+.flex.items-center.bg-gray-50.rounded-2xl:focus-within {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+
+/* 确保输入框本身没有focus边框 */
+.flex-1.bg-transparent:focus {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
