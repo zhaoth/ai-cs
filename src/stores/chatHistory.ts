@@ -189,6 +189,19 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     })
   }
 
+  // 批量删除聊天会话
+  function deleteChatsBatch(chatIds: string[]) {
+    if (chatIds.length === 0) return
+
+    // 批量删除指定的聊天会话
+    chats.value = chats.value.filter((chat) => !chatIds.includes(chat.id))
+
+    // 如果当前聊天在删除列表中，需要更新当前聊天ID
+    if (currentChatId.value && chatIds.includes(currentChatId.value)) {
+      currentChatId.value = chats.value.length > 0 ? chats.value[0].id : null
+    }
+  }
+
   // 获取存储统计信息
   function getStorageStats() {
     const totalChats = chats.value.length
@@ -222,6 +235,7 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     deleteMessage,
     setCurrentChat,
     deleteChat,
+    deleteChatsBatch,
     clearAllChats,
     clearCurrentChatMessages,
     updateCurrentChatModel,
