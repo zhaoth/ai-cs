@@ -11,6 +11,7 @@ import {
   hasMarkdownSyntax,
   getPlainText,
 } from '@/utils/markdown'
+import { callUnifiedAiApi } from '@/services/aiApiService'
 
 const chatStore = useChatHistoryStore()
 const modelsStore = useModelsStore()
@@ -50,16 +51,14 @@ const showCopyOptions = ref<Record<string, boolean>>({})
 // Markdown 框内复制选项显示状态
 const showMarkdownCopyOptions = ref<Record<string, boolean>>({})
 
-// 处理文件上传
+// 处理文件上传 - 使用新的抽象文件服务
 const handleFileUpload = async (file: FileAttachment) => {
   try {
     file.uploadStatus = 'uploading'
 
-    // 只有在文件有实际内容或者是文本文件时才上传到Kimi
-    if (modelsStore.selectedModelId === 'kimi' && file.content && file.content.trim()) {
-      const kimiFileId = await uploadFileToKimi(file)
-      file.kimiFileId = kimiFileId
-    }
+    // 使用统一的文件处理服务
+    const { processFilesForModel } = await import('@/services/fileService')
+    await processFilesForModel(currentChatModelId.value, [file])
 
     file.uploadStatus = 'success'
     message.success(`文件 "${file.name}" 上传成功`)
@@ -72,68 +71,8 @@ const handleFileUpload = async (file: FileAttachment) => {
   }
 }
 
-// 上传文件到Kimi API
-const uploadFileToKimi = async (file: FileAttachment): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('Moonshot')
-
-  if (!apiKey) {
-    throw new Error('Kimi API Key 未配置')
-  }
-
-  // 检查文件内容，只有有内容的文本文件才上传
-  if (!file.content || !file.content.trim()) {
-    throw new Error('文件内容为空，无法上传到 Kimi API')
-  }
-
-  // 验证文件类型
-  if (!file.type.startsWith('text/') && !file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
-    throw new Error('只支持文本文件上传到 Kimi API')
-  }
-
-  // 创建 FormData 用于文件上传
-  const formData = new FormData()
-
-  // 使用文件内容创建 Blob
-  const fileBlob = new Blob([file.content], {
-    type: file.type || 'text/plain',
-  })
-
-  // 检查 Blob 大小
-  if (fileBlob.size === 0) {
-    throw new Error('文件内容为空，无法上传')
-  }
-
-  formData.append('file', fileBlob, file.name)
-  formData.append('purpose', 'file-extract')
-
-  try {
-    const response = await fetch('https://api.moonshot.cn/v1/files', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: formData,
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null)
-      throw new Error(
-        `文件上传失败: ${response.status} ${errorData?.error?.message || response.statusText}`,
-      )
-    }
-
-    const data = await response.json()
-
-    if (!data.id) {
-      throw new Error('上传成功但未获得文件ID')
-    }
-
-    return data.id
-  } catch (error) {
-    console.error('Kimi文件上传API调用失败:', error)
-    throw error
-  }
-}
+// 已移除：uploadFileToKimi - 现在使用统一的文件服务抽象
+// 此函数的功能已集成到 /services/fileService.ts 中的 KimiFileProcessor
 
 // 打开文件上传弹窗
 const openFileUploadModal = () => {
@@ -267,7 +206,7 @@ const sendMessageWithFiles = async (messageText: string, files: FileAttachment[]
   }
 }
 
-// 调用AI API（包含文件上下文）
+// 调用AI API（包含文件上下文）- 使用新的抽象服务
 const callAiAPIWithFiles = async (modelId: string, files: FileAttachment[]): Promise<string> => {
   // 获取当前对话的所有消息作为上下文
   const currentMessages = chatStore.currentChat?.messages || []
@@ -300,92 +239,20 @@ const callAiAPIWithFiles = async (modelId: string, files: FileAttachment[]): Pro
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
-  switch (modelId) {
-    case 'kimi':
-      return await callKimiAPIWithFiles(limitedMessages, files)
-    case 'gpt-4':
-    case 'gpt-3.5-turbo':
-    case 'claude-2':
-    case 'deepseek-v3.1':
-    default:
-      return await callAiAPI(modelId) // 对于其他模型，使用原有逻辑
-  }
-}
-
-// 调用Kimi API（包含文件上下文）
-const callKimiAPIWithFiles = async (
-  messages: Array<{ role: string; content: string }>,
-  files: FileAttachment[],
-): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('Moonshot')
-
-  if (!apiKey) {
-    throw new Error('Kimi API Key 未配置，请在模型设置中添加API密钥')
-  }
-
+  // 使用新的统一文件处理服务
   try {
-    // 构建请求消息，包含文件引用
-    const requestMessages = [...messages]
-
-    // 优先处理文本文件内容，其次使用Kimi文件ID
-    if (files.length > 0 && requestMessages.length > 0) {
-      const lastMessage = requestMessages[requestMessages.length - 1]
-      if (lastMessage.role === 'user') {
-        // 分类处理文件
-        const textFiles = files.filter((f) => f.content && f.content.trim())
-        const kimiFiles = files.filter((f) => f.kimiFileId && !f.content)
-
-        let fileContext = ''
-
-        // 优先使用文本文件内容（更可靠）
-        if (textFiles.length > 0) {
-          const textContents = textFiles
-            .map((f) => `文件: ${f.name}\n内容:\n${f.content}`)
-            .join('\n\n---文件分割线---\n\n')
-          fileContext += `\n\n以下是上传的文件内容：\n\n${textContents}`
-        }
-
-        // 如果有成功上传的Kimi文件ID，作为补充
-        if (kimiFiles.length > 0) {
-          const kimiFileIds = kimiFiles.map((f) => f.kimiFileId!)
-          fileContext += `\n\n请同时分析以下文件: ${kimiFileIds.map((id) => `file://${id}`).join(', ')}`
-        }
-
-        if (fileContext) {
-          lastMessage.content += fileContext
-        }
-      }
-    }
-
-    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'kimi-k2-0711-preview',
-        messages: requestMessages,
-        temperature: 0.7,
-        max_tokens: 3000, // 进一步增加token限制以支持更长的文件分析
-        stream: false,
-      }),
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null)
-      throw new Error(
-        `Kimi API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
-      )
-    }
-
-    const data = await response.json()
-    return data.choices[0]?.message?.content || '抱歉，我无法处理您上传的文件。'
+    // 导入文件服务
+    const { callAiApiWithFiles } = await import('@/services/fileService')
+    return await callAiApiWithFiles(modelId, limitedMessages, files)
   } catch (error) {
-    console.error('Kimi API 调用失败:', error)
-    throw error
+    console.error('统一API调用失败，降级到原有逻辑:', error)
+    // 降级处理：使用原有的callAiAPI
+    return await callAiAPI(modelId)
   }
 }
+
+// 已移除：callKimiAPIWithFiles - 现在使用统一的文件服务抽象
+// 此函数的功能已集成到 /services/fileService.ts 中
 
 // 生成文件感知的模拟回复
 const generateFileAwareResponse = (modelId: string, files: FileAttachment[]): string => {
@@ -835,186 +702,17 @@ const callAiAPI = async (modelId: string): Promise<string> => {
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
-  switch (modelId) {
-    case 'kimi':
-      return await callKimiAPI(limitedMessages)
-    case 'gpt-4':
-      return await callOpenAIAPI('gpt-4', limitedMessages)
-    case 'gpt-3.5-turbo':
-      return await callOpenAIAPI('gpt-3.5-turbo', limitedMessages)
-    case 'claude-2':
-      return await callClaudeAPI(limitedMessages)
-    case 'deepseek-v3.1':
-      return await callDeepSeekAPI(limitedMessages)
-    default:
-      // 对于其他模型，生成带上下文理解的模拟回复
-      return generateContextAwareResponse(modelId, limitedMessages)
-  }
-}
-
-// 调用 Kimi API
-const callKimiAPI = async (messages: Array<{ role: string; content: string }>): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('Moonshot')
-
-  if (!apiKey) {
-    throw new Error('Kimi API Key 未配置，请在模型设置中添加API密钥')
-  }
-
   try {
-    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'kimi-k2-0711-preview',
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 1000,
-        stream: false,
-      }),
+    // 使用统一的API调用服务
+    return await callUnifiedAiApi(modelId, limitedMessages, {
+      temperature: 0.7,
+      maxTokens: 1000,
+      stream: true,
     })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null)
-      throw new Error(
-        `API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
-      )
-    }
-
-    const data = await response.json()
-    return data.choices[0]?.message?.content || '抱歉，我无法回复您的消息。'
   } catch (error) {
-    console.error('Kimi API 调用失败:', error)
-    throw new Error(`Kimi API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
-  }
-}
-
-// 调用 OpenAI API (GPT-4, GPT-3.5-turbo)
-const callOpenAIAPI = async (
-  model: string,
-  messages: Array<{ role: string; content: string }>,
-): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('OpenAI')
-
-  if (!apiKey) {
-    throw new Error('OpenAI API Key 未配置，请在模型设置中添加API密钥')
-  }
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 1000,
-      }),
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null)
-      throw new Error(
-        `OpenAI API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
-      )
-    }
-
-    const data = await response.json()
-    return data.choices[0]?.message?.content || '抱歉，我无法回复您的消息。'
-  } catch (error) {
-    console.error('OpenAI API 调用失败:', error)
-    throw new Error(`OpenAI API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
-  }
-}
-
-// 调用 Claude API
-const callClaudeAPI = async (
-  messages: Array<{ role: string; content: string }>,
-): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('Anthropic')
-
-  if (!apiKey) {
-    throw new Error('Anthropic API Key 未配置，请在模型设置中添加API密钥')
-  }
-
-  try {
-    // Claude API 需要特殊的消息格式处理
-    const claudeMessages = messages.filter((msg) => msg.role !== 'system')
-    const systemMessage = messages.find((msg) => msg.role === 'system')?.content
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-2.1',
-        max_tokens: 1000,
-        system: systemMessage,
-        messages: claudeMessages,
-      }),
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null)
-      throw new Error(
-        `Claude API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
-      )
-    }
-
-    const data = await response.json()
-    return data.content[0]?.text || '抱歉，我无法回复您的消息。'
-  } catch (error) {
-    console.error('Claude API 调用失败:', error)
-    throw new Error(`Claude API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
-  }
-}
-
-// 调用 DeepSeek API
-const callDeepSeekAPI = async (
-  messages: Array<{ role: string; content: string }>,
-): Promise<string> => {
-  const apiKey = modelsStore.getApiKey('DeepSeek')
-
-  if (!apiKey) {
-    throw new Error('DeepSeek API Key 未配置，请在模型设置中添加API密钥')
-  }
-
-  try {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 1000,
-        stream: false,
-      }),
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null)
-      throw new Error(
-        `DeepSeek API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
-      )
-    }
-
-    const data = await response.json()
-    return data.choices[0]?.message?.content || '抱歉，我无法回复您的消息。'
-  } catch (error) {
-    console.error('DeepSeek API 调用失败:', error)
-    throw new Error(`DeepSeek API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    // 如果API调用失败，降级到模拟回复
+    console.error(`AI API调用失败 [${modelId}]:`, error)
+    return generateContextAwareResponse(modelId, limitedMessages)
   }
 }
 
