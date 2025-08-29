@@ -91,9 +91,6 @@ const handleFileUpload = async (file: FileAttachment) => {
 // 此函数的功能已集成到 /services/fileService.ts 中的 KimiFileProcessor
 
 // 打开文件上传弹窗
-const openFileUploadModal = () => {
-  showFileUploadModal.value = true
-}
 
 // 关闭文件上传弹窗
 const closeFileUploadModal = () => {
@@ -1390,14 +1387,6 @@ const generateContextAwareResponse = (
                 <span class="text-white text-xs transition-transform duration-200 hover:scale-110"
                   >🕰️</span
                 >
-              </button>
-              <!-- 附件按钮 -->
-              <button
-                @click="openFileUploadModal"
-                class="w-6 h-6 bg-gradient-to-br from-primary-500 to-primary-600 rounded flex items-center justify-center hover:from-primary-600 hover:to-primary-700 transition-all duration-200 transform hover:scale-105"
-                title="上传文件"
-              >
-                <span class="text-white text-xs">📎</span>
               </button>
             </div>
             <input
