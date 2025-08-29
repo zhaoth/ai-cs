@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import { useChatHistoryStore } from '@/stores/chatHistory'
 import { useModelsStore } from '@/stores/models'
@@ -19,6 +19,9 @@ const searchStore = useSearchHistoryStore()
 
 const inputMessage = ref('')
 const loading = ref(false)
+
+// 聊天容器引用，用于自动滚动
+const chatContainer = ref<HTMLElement | null>(null)
 
 // 流式输出状态
 const streamingMessageId = ref<string | null>(null)
@@ -407,6 +410,33 @@ const showClearContextConfirm = () => {
   showClearConfirm.value = true
 }
 
+// 自动滚动到底部函数
+const scrollToBottom = async (smooth = true) => {
+  await nextTick()
+  if (chatContainer.value) {
+    const scrollOptions: ScrollToOptions = {
+      top: chatContainer.value.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto',
+    }
+    chatContainer.value.scrollTo(scrollOptions)
+  }
+}
+
+// 监听流式输出状态变化，自动滚动
+watch(
+  [streamingContent, () => chatStore.currentChat?.messages],
+  async () => {
+    // 在流式输出过程中或有新消息时自动滚动
+    if (
+      streamingMessageId.value ||
+      (chatStore.currentChat && chatStore.currentChat.messages.length > 0)
+    ) {
+      await scrollToBottom(true)
+    }
+  },
+  { deep: true },
+)
+
 // 确认清空当前对话上下文
 const confirmClearContext = () => {
   chatStore.clearCurrentChatMessages()
@@ -575,6 +605,9 @@ const regenerateResponse = async (messageObj: Message) => {
         // 实时更新流式内容
         streamingContent.value += chunk
         chat.messages[targetMessageIndex].content = streamingContent.value
+
+        // 重新生成时也自动滚动
+        scrollToBottom(false)
       })
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
@@ -595,6 +628,9 @@ const regenerateResponse = async (messageObj: Message) => {
         const char = mockResponse[i]
         streamingContent.value += char
         chat.messages[targetMessageIndex].content = streamingContent.value
+
+        // 重新生成模拟时也自动滚动
+        scrollToBottom(false)
       }
 
       aiResponse = mockResponse
@@ -624,6 +660,13 @@ onMounted(() => {
     modelsStore.selectModel(defaultModel)
     chatStore.createChat(defaultModel)
   }
+
+  // 页面加载后滚动到底部（如果有历史消息）
+  nextTick(() => {
+    if (chatStore.currentChat && chatStore.currentChat.messages.length > 0) {
+      scrollToBottom(false)
+    }
+  })
 
   // 添加全局点击事件监听器，用于关闭复制选项菜单
   document.addEventListener('click', (event) => {
@@ -665,6 +708,9 @@ const sendMessage = async () => {
     model: currentChatModelId.value,
   })
 
+  // 用户发送消息后立即滚动到底部
+  await scrollToBottom(true)
+
   // 创建一个空的AI回复消息，用于流式输出
   const aiMessageId = chatStore.addMessage(chatId, {
     role: 'assistant',
@@ -693,6 +739,9 @@ const sendMessage = async () => {
             chat.messages[messageIndex].content = streamingContent.value
           }
         }
+
+        // 流式输出时自动滚动到底部
+        scrollToBottom(false) // 使用非平滑滚动，提高性能
       })
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
@@ -721,6 +770,9 @@ const sendMessage = async () => {
             chat.messages[messageIndex].content = streamingContent.value
           }
         }
+
+        // 模拟打字机效果时也自动滚动
+        scrollToBottom(false)
       }
 
       aiResponse = mockResponse
@@ -877,7 +929,7 @@ const generateContextAwareResponse = (
     </div>
 
     <!-- 对话内容区 -->
-    <div class="flex-1 px-8 pb-6 overflow-y-auto chat-scroll">
+    <div ref="chatContainer" class="flex-1 px-8 pb-6 overflow-y-auto chat-scroll">
       <div class="max-w-4xl mx-auto space-y-6">
         <!-- 加载状态 -->
         <div v-if="loading" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 mb-6">
