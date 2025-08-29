@@ -76,8 +76,9 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     const newChat: Chat = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       title:
-        initialMessage?.substring(0, 20) +
-          (initialMessage && initialMessage.length > 20 ? '...' : '') || '新对话',
+        (initialMessage && initialMessage.length > 0) 
+          ? (initialMessage.substring(0, 20) + (initialMessage.length > 20 ? '...' : '')) 
+          : '新对话',
       model,
       selectedModelId: model, // 初始化为传入的模型
       messages: [],
