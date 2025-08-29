@@ -131,6 +131,23 @@ npm run lint
 pnpm lint
 ```
 
+### 部署到GitHub Pages
+```bash
+# 使用部署脚本
+./scripts/deploy.sh
+```
+
+或者手动推送到GitHub，GitHub Actions将自动部署:
+```bash
+git add .
+git commit -m "更新内容"
+git push origin main
+```
+
+在线访问地址: [https://zhaoth.github.io/ai-cs/](https://zhaoth.github.io/ai-cs/)
+
+详细部署说明请参考: [GitHub Pages部署指南](docs/GITHUB_PAGES_DEPLOYMENT.md)
+
 ## 🎯 设计理念
 
 ### 用户体验优先

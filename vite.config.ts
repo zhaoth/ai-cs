@@ -7,6 +7,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/ai-cs/', // 添加GitHub Pages的基础路径
   plugins: [
     vue(),
     vueJsx(),
