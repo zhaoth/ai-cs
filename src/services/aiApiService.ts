@@ -49,6 +49,7 @@ export interface ApiRequestConfig {
   maxTokens?: number
   stream?: boolean
   systemMessage?: string
+  onStreamChunk?: (chunk: string) => void // 新增：流式数据回调
 }
 
 // 默认请求配置
@@ -103,7 +104,10 @@ abstract class BaseApiProvider {
   }
 
   // 处理流式响应
-  protected async processStreamResponse(response: Response): Promise<string> {
+  protected async processStreamResponse(
+    response: Response,
+    onChunk?: (chunk: string) => void,
+  ): Promise<string> {
     const reader = response.body?.getReader()
     if (!reader) {
       throw new Error('无法获取响应数据流')
@@ -134,6 +138,10 @@ abstract class BaseApiProvider {
 
               if (content) {
                 fullContent += content
+                // 实时回调每个数据块
+                if (onChunk) {
+                  onChunk(content)
+                }
               }
             } catch {
               // 忽略解析错误的数据块
@@ -186,7 +194,7 @@ abstract class BaseApiProvider {
 
       // 根据是否启用流式处理选择不同的处理方式
       if (config.stream !== false) {
-        return await this.processStreamResponse(response)
+        return await this.processStreamResponse(response, config.onStreamChunk)
       } else {
         const data = await response.json()
         return this.processResponse(data)
@@ -205,7 +213,7 @@ export class KimiApiProvider extends BaseApiProvider {
   constructor() {
     super({
       endpoint: 'https://api.moonshot.cn/v1/chat/completions',
-      model: 'kimi-k2-0711-preview',
+      model: 'moonshot-v1-8k', // 使用最新的稳定模型
       headers: {},
     })
   }

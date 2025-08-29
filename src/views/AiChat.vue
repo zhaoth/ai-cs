@@ -20,6 +20,10 @@ const searchStore = useSearchHistoryStore()
 const inputMessage = ref('')
 const loading = ref(false)
 
+// 流式输出状态
+const streamingMessageId = ref<string | null>(null)
+const streamingContent = ref('')
+
 // 搜索建议相关状态
 const showSearchSuggestions = ref(false)
 const searchInputFocused = ref(false)
@@ -212,27 +216,30 @@ const callAiAPIWithFiles = async (modelId: string, files: FileAttachment[]): Pro
   const currentMessages = chatStore.currentChat?.messages || []
 
   // 构建包含文件信息的上下文
-  const contextMessages = currentMessages.map((msg) => {
-    let content = msg.content
+  const contextMessages = currentMessages
+    // 重要：过滤掉空的assistant消息，避免API错误
+    .filter((msg) => !(msg.role === 'assistant' && !msg.content.trim()))
+    .map((msg) => {
+      let content = msg.content
 
-    // 如果消息包含文件附件，添加文件信息到内容中
-    if (msg.attachments && msg.attachments.length > 0) {
-      const fileInfos = msg.attachments
-        .map((f) => {
-          if (f.content) {
-            return `文件: ${f.name}\n内容: ${f.content}`
-          }
-          return `文件: ${f.name} (${f.type})`
-        })
-        .join('\n\n')
-      content += `\n\n附件信息:\n${fileInfos}`
-    }
+      // 如果消息包含文件附件，添加文件信息到内容中
+      if (msg.attachments && msg.attachments.length > 0) {
+        const fileInfos = msg.attachments
+          .map((f) => {
+            if (f.content) {
+              return `文件: ${f.name}\n内容: ${f.content}`
+            }
+            return `文件: ${f.name} (${f.type})`
+          })
+          .join('\n\n')
+        content += `\n\n附件信息:\n${fileInfos}`
+      }
 
-    return {
-      role: msg.role,
-      content: content,
-    }
-  })
+      return {
+        role: msg.role,
+        content: content,
+      }
+    })
 
   // 限制上下文长度
   const maxMessages = 20
@@ -521,7 +528,7 @@ const copyMarkdownMessage = async (content: string) => {
   }
 }
 
-// 重新生成回复
+// 重新生成回复（支持流式显示）
 const regenerateResponse = async (messageObj: Message) => {
   if (!chatStore.currentChatId || loading.value) return
 
@@ -541,55 +548,71 @@ const regenerateResponse = async (messageObj: Message) => {
     return
   }
 
-  // 删除当前的AI回复
+  // 用原消息的ID直接替换内容，保持消息位置
   const chatId = chatStore.currentChatId
   const chat = chatStore.chats.find((c) => c.id === chatId)
-  let removedMessageIndex = -1
+  const targetMessageIndex = chat?.messages.findIndex((m) => m.id === messageObj.id)
 
-  if (chat) {
-    removedMessageIndex = chat.messages.findIndex((m) => m.id === messageObj.id)
-    if (removedMessageIndex !== -1) {
-      chat.messages.splice(removedMessageIndex, 1)
-    }
+  if (!chat || targetMessageIndex === undefined || targetMessageIndex === -1) {
+    message.error('无法找到目标消息')
+    return
   }
 
-  // 重新生成回复
+  // 保存原始内容，用于错误恢复
+  const originalContent = messageObj.content
+
+  // 清空内容并设置流式状态
+  chat.messages[targetMessageIndex].content = ''
+  streamingMessageId.value = messageObj.id
+  streamingContent.value = ''
   loading.value = true
 
   try {
-    // 重新生成时也要传递完整上下文
+    // 重新生成时传递完整上下文
     let aiResponse
     try {
-      aiResponse = await callAiAPI(currentChatModelId.value)
+      aiResponse = await callAiAPIStreaming(currentChatModelId.value, (chunk) => {
+        // 实时更新流式内容
+        streamingContent.value += chunk
+        chat.messages[targetMessageIndex].content = streamingContent.value
+      })
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
       // API调用失败时使用上下文感知的模拟回复
-      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500))
       const contextMessages =
-        chatStore.currentChat?.messages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        })) || []
-      aiResponse = generateContextAwareResponse(currentChatModelId.value, contextMessages)
+        chatStore.currentChat?.messages
+          .slice(0, targetMessageIndex) // 只取重新生成之前的消息
+          .map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+          })) || []
+
+      const mockResponse = generateContextAwareResponse(currentChatModelId.value, contextMessages)
+
+      // 模拟打字机效果
+      for (let i = 0; i < mockResponse.length; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 50))
+        const char = mockResponse[i]
+        streamingContent.value += char
+        chat.messages[targetMessageIndex].content = streamingContent.value
+      }
+
+      aiResponse = mockResponse
     }
 
-    // 添加新的AI回复
-    chatStore.addMessage(chatId, {
-      role: 'assistant',
-      content: aiResponse,
-      model: currentChatModelId.value,
-    })
-
+    // 确保最终内容一致
+    chat.messages[targetMessageIndex].content = aiResponse
     message.success('已重新生成回复')
   } catch (error) {
     console.error('重新生成失败:', error)
-    // 重新添加原来的消息
-    if (chat && removedMessageIndex !== -1) {
-      chat.messages.splice(removedMessageIndex, 0, messageObj)
-    }
+    // 恢复原来的内容
+    chat.messages[targetMessageIndex].content = originalContent
     message.error('重新生成失败，请稍后重试')
   } finally {
+    // 清理流式状态
     loading.value = false
+    streamingMessageId.value = null
+    streamingContent.value = ''
   }
 }
 
@@ -642,55 +665,144 @@ const sendMessage = async () => {
     model: currentChatModelId.value,
   })
 
-  // 显示加载状态
+  // 创建一个空的AI回复消息，用于流式输出
+  const aiMessageId = chatStore.addMessage(chatId, {
+    role: 'assistant',
+    content: '', // 初始为空
+    model: currentChatModelId.value,
+  })
+
+  // 设置流式状态
+  streamingMessageId.value = aiMessageId
+  streamingContent.value = ''
   loading.value = true
 
   try {
-    // 调用AI API，自动传递完整对话上下文
+    // 调用流式AI API
     let aiResponse
     try {
-      aiResponse = await callAiAPI(currentChatModelId.value)
+      aiResponse = await callAiAPIStreaming(currentChatModelId.value, (chunk) => {
+        // 实时更新流式内容
+        streamingContent.value += chunk
+
+        // 找到对应的消息并更新内容
+        const chat = chatStore.chats.find((c) => c.id === chatId)
+        if (chat) {
+          const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+          if (messageIndex !== -1) {
+            chat.messages[messageIndex].content = streamingContent.value
+          }
+        }
+      })
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
-      // 如果API调用失败，降级到模拟回复但保持上下文感知
-      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500))
+      // API调用失败时使用上下文感知的模拟回复
+
+      // 模拟流式输出效果
       const contextMessages =
         chatStore.currentChat?.messages.map((msg) => ({
           role: msg.role,
           content: msg.content,
         })) || []
-      aiResponse = generateContextAwareResponse(currentChatModelId.value, contextMessages)
+
+      const mockResponse = generateContextAwareResponse(currentChatModelId.value, contextMessages)
+
+      // 模拟打字机效果
+      for (let i = 0; i < mockResponse.length; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 50)) // 30-80ms间隔
+        const char = mockResponse[i]
+        streamingContent.value += char
+
+        // 更新消息内容
+        const chat = chatStore.chats.find((c) => c.id === chatId)
+        if (chat) {
+          const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+          if (messageIndex !== -1) {
+            chat.messages[messageIndex].content = streamingContent.value
+          }
+        }
+      }
+
+      aiResponse = mockResponse
     }
 
-    // 添加AI回复
-    chatStore.addMessage(chatId, {
-      role: 'assistant',
-      content: aiResponse,
-      model: currentChatModelId.value,
-    })
+    // 确保最终内容一致
+    const chat = chatStore.chats.find((c) => c.id === chatId)
+    if (chat) {
+      const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+      if (messageIndex !== -1) {
+        chat.messages[messageIndex].content = aiResponse
+      }
+    }
   } catch (error) {
     console.error('发送消息失败:', error)
     // 添加错误消息
-    chatStore.addMessage(chatId, {
-      role: 'assistant',
-      content: `抱歉，发送失败: ${error instanceof Error ? error.message : '未知错误'}`,
-      model: currentChatModelId.value,
-    })
+    const chat = chatStore.chats.find((c) => c.id === chatId)
+    if (chat) {
+      const messageIndex = chat.messages.findIndex((m) => m.id === aiMessageId)
+      if (messageIndex !== -1) {
+        chat.messages[messageIndex].content =
+          `抱歉，发送失败: ${error instanceof Error ? error.message : '未知错误'}`
+      }
+    }
   } finally {
+    // 清理流式状态
     loading.value = false
+    streamingMessageId.value = null
+    streamingContent.value = ''
   }
 }
 
-// 通用AI API调用函数，支持所有模型的上下文传递
+// 流式 AI API 调用函数，支持实时显示
+const callAiAPIStreaming = async (
+  modelId: string,
+  onStreamChunk: (chunk: string) => void,
+): Promise<string> => {
+  // 获取当前对话的所有消息作为上下文
+  const currentMessages = chatStore.currentChat?.messages || []
+
+  // 将内部消息格式转换为API所需格式，保持上下文连续性
+  // 重要：过滤掉空的assistant消息，避免API错误
+  const contextMessages = currentMessages
+    .filter((msg) => !(msg.role === 'assistant' && !msg.content.trim()))
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }))
+
+  // 限制上下文长度以避免token超限，保留最近的对话
+  const maxMessages = 20
+  const limitedMessages =
+    contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
+
+  try {
+    // 使用统一的API调用服务，传递流式回调
+    return await callUnifiedAiApi(modelId, limitedMessages, {
+      temperature: 0.7,
+      maxTokens: 1000,
+      stream: true,
+      onStreamChunk, // 传递流式回调函数
+    })
+  } catch (error) {
+    // 如果API调用失败，降级到模拟回复
+    console.error(`AI API调用失败 [${modelId}]:`, error)
+    return generateContextAwareResponse(modelId, limitedMessages)
+  }
+}
+
+// 通用AI API调用函数（保留旧的非流式方式，用于兼容）
 const callAiAPI = async (modelId: string): Promise<string> => {
   // 获取当前对话的所有消息作为上下文
   const currentMessages = chatStore.currentChat?.messages || []
 
   // 将内部消息格式转换为API所需格式，保持上下文连续性
-  const contextMessages = currentMessages.map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-  }))
+  // 重要：过滤掉空的assistant消息，避免API错误
+  const contextMessages = currentMessages
+    .filter((msg) => !(msg.role === 'assistant' && !msg.content.trim()))
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }))
 
   // 限制上下文长度以避免token超限，保留最近的对话
   const maxMessages = 20

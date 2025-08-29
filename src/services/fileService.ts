@@ -142,6 +142,7 @@ export async function callAiApiWithFiles(
   modelId: string,
   messages: Array<{ role: string; content: string }>,
   files: FileAttachment[],
+  config: { onStreamChunk?: (chunk: string) => void } = {},
 ): Promise<string> {
   // 构建包含文件信息的上下文消息
   const contextMessages = [...messages]
@@ -193,10 +194,11 @@ export async function callAiApiWithFiles(
     }
   }
 
-  // 使用统一API调用
+  // 使用统一API调用，传递流式回调
   return await callUnifiedAiApi(modelId, contextMessages, {
     temperature: 0.7,
     maxTokens: modelId === 'kimi' ? 3000 : 1000, // Kimi支持更长的回复
     stream: true,
+    onStreamChunk: config.onStreamChunk, // 传递流式回调
   })
 }

@@ -90,7 +90,7 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     return newChat.id
   }
 
-  function addMessage(chatId: string, message: Omit<Message, 'id' | 'timestamp'>) {
+  function addMessage(chatId: string, message: Omit<Message, 'id' | 'timestamp'>): string {
     const chat = chats.value.find((c) => c.id === chatId)
     if (chat) {
       const newMessage: Message = {
@@ -106,7 +106,10 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
       if (chat.messages.length === 1 && message.role === 'user') {
         chat.title = message.content.substring(0, 20) + (message.content.length > 20 ? '...' : '')
       }
+
+      return newMessage.id
     }
+    throw new Error('Chat not found')
   }
 
   function setCurrentChat(chatId: string) {
