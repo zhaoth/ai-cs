@@ -332,15 +332,17 @@ const getMessageTextForCopy = (content: string): string => {
 }
 // 搜索建议计算属性
 const searchSuggestions = computed(() => {
+  // 只有当输入框有内容时才返回搜索建议
   if (!inputMessage.value.trim()) {
-    return searchStore.getRecentSearches(8)
+    return []
   }
   return searchStore.searchInHistory(inputMessage.value)
 })
 
 // 监听输入框内容变化，显示/隐藏搜索建议
 watch(inputMessage, (newValue) => {
-  if (searchInputFocused.value && (newValue.length > 0 || searchStore.searchHistory.length > 0)) {
+  // 只有当输入框有内容且获得焦点时才显示搜索建议
+  if (searchInputFocused.value && newValue.length > 0) {
     showSearchSuggestions.value = true
   } else {
     showSearchSuggestions.value = false
@@ -367,7 +369,8 @@ const handleModelChange = (modelId: string) => {
 // 输入框聚焦处理
 const handleInputFocus = () => {
   searchInputFocused.value = true
-  if (inputMessage.value.length > 0 || searchStore.searchHistory.length > 0) {
+  // 只有当输入框有内容时才显示搜索建议
+  if (inputMessage.value.length > 0) {
     showSearchSuggestions.value = true
   }
 }
@@ -1319,8 +1322,7 @@ const generateContextAwareResponse = (
               <div
                 class="flex items-center justify-between px-3 py-2 text-sm text-gray-500 border-b border-gray-100"
               >
-                <span v-if="!inputMessage.trim()">🕰️ 最近搜索</span>
-                <span v-else>🔍 搜索建议</span>
+                <span>🔍 搜索建议</span>
                 <button
                   v-if="searchStore.searchHistory.length > 0"
                   @click="clearSearchHistory"
