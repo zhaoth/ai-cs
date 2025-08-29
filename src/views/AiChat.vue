@@ -23,6 +23,17 @@ const loading = ref(false)
 const showSearchSuggestions = ref(false)
 const searchInputFocused = ref(false)
 
+// 当前会话的模型选择（计算属性）
+const currentChatModelId = computed(() => {
+  return chatStore.currentChat?.selectedModelId || modelsStore.selectedModelId
+})
+
+// 当前会话的模型信息
+const currentChatModel = computed(() => {
+  const modelId = currentChatModelId.value
+  return modelsStore.models.find((model) => model.id === modelId) || modelsStore.models[0]
+})
+
 // 清空上下文确认对话框状态
 const showClearConfirm = ref(false)
 
@@ -213,14 +224,14 @@ const sendMessageWithFiles = async (messageText: string, files: FileAttachment[]
   // 确保有当前聊天
   let chatId = chatStore.currentChatId
   if (!chatId) {
-    chatId = chatStore.createChat(modelsStore.selectedModelId, messageText)
+    chatId = chatStore.createChat(currentChatModelId.value, messageText)
   }
 
   // 添加用户消息（包含文件附件）
   chatStore.addMessage(chatId, {
     role: 'user',
     content: messageText,
-    model: modelsStore.selectedModelId,
+    model: currentChatModelId.value,
     attachments: files,
   })
 
@@ -231,25 +242,25 @@ const sendMessageWithFiles = async (messageText: string, files: FileAttachment[]
     // 调用AI API，传递文件上下文
     let aiResponse
     try {
-      aiResponse = await callAiAPIWithFiles(modelsStore.selectedModelId, files)
+      aiResponse = await callAiAPIWithFiles(currentChatModelId.value, files)
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500))
-      aiResponse = generateFileAwareResponse(modelsStore.selectedModelId, files)
+      aiResponse = generateFileAwareResponse(currentChatModelId.value, files)
     }
 
     // 添加AI回复
     chatStore.addMessage(chatId, {
       role: 'assistant',
       content: aiResponse,
-      model: modelsStore.selectedModelId,
+      model: currentChatModelId.value,
     })
   } catch (error) {
     console.error('发送消息失败:', error)
     chatStore.addMessage(chatId, {
       role: 'assistant',
       content: `抱歉，处理文件时发生错误: ${error instanceof Error ? error.message : '未知错误'}`,
-      model: modelsStore.selectedModelId,
+      model: currentChatModelId.value,
     })
   } finally {
     loading.value = false
@@ -472,6 +483,9 @@ const getModelIcon = (modelId: string) => {
 
 // 处理模型选择变化
 const handleModelChange = (modelId: string) => {
+  // 更新当前会话的模型选择
+  chatStore.updateCurrentChatModel(modelId)
+  // 同时更新全局默认模型（为新会话做准备）
   modelsStore.selectModel(modelId)
 }
 
@@ -684,7 +698,7 @@ const regenerateResponse = async (messageObj: Message) => {
     // 重新生成时也要传递完整上下文
     let aiResponse
     try {
-      aiResponse = await callAiAPI(modelsStore.selectedModelId)
+      aiResponse = await callAiAPI(currentChatModelId.value)
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
       // API调用失败时使用上下文感知的模拟回复
@@ -694,14 +708,14 @@ const regenerateResponse = async (messageObj: Message) => {
           role: msg.role,
           content: msg.content,
         })) || []
-      aiResponse = generateContextAwareResponse(modelsStore.selectedModelId, contextMessages)
+      aiResponse = generateContextAwareResponse(currentChatModelId.value, contextMessages)
     }
 
     // 添加新的AI回复
     chatStore.addMessage(chatId, {
       role: 'assistant',
       content: aiResponse,
-      model: modelsStore.selectedModelId,
+      model: currentChatModelId.value,
     })
 
     message.success('已重新生成回复')
@@ -720,8 +734,10 @@ const regenerateResponse = async (messageObj: Message) => {
 // 创建初始聊天
 onMounted(() => {
   if (!chatStore.currentChatId && chatStore.chats.length === 0) {
-    modelsStore.selectModel('kimi')
-    chatStore.createChat('kimi')
+    // 使用默认模型创建会话
+    const defaultModel = 'kimi'
+    modelsStore.selectModel(defaultModel)
+    chatStore.createChat(defaultModel)
   }
 
   // 添加全局点击事件监听器，用于关闭复制选项菜单
@@ -754,14 +770,14 @@ const sendMessage = async () => {
   // 确保有当前聊天
   let chatId = chatStore.currentChatId
   if (!chatId) {
-    chatId = chatStore.createChat(modelsStore.selectedModelId, userMessage)
+    chatId = chatStore.createChat(currentChatModelId.value, userMessage)
   }
 
   // 添加用户消息
   chatStore.addMessage(chatId, {
     role: 'user',
     content: userMessage,
-    model: modelsStore.selectedModelId,
+    model: currentChatModelId.value,
   })
 
   // 显示加载状态
@@ -771,7 +787,7 @@ const sendMessage = async () => {
     // 调用AI API，自动传递完整对话上下文
     let aiResponse
     try {
-      aiResponse = await callAiAPI(modelsStore.selectedModelId)
+      aiResponse = await callAiAPI(currentChatModelId.value)
     } catch (error) {
       console.error('AI API调用失败，使用模拟回复:', error)
       // 如果API调用失败，降级到模拟回复但保持上下文感知
@@ -781,14 +797,14 @@ const sendMessage = async () => {
           role: msg.role,
           content: msg.content,
         })) || []
-      aiResponse = generateContextAwareResponse(modelsStore.selectedModelId, contextMessages)
+      aiResponse = generateContextAwareResponse(currentChatModelId.value, contextMessages)
     }
 
     // 添加AI回复
     chatStore.addMessage(chatId, {
       role: 'assistant',
       content: aiResponse,
-      model: modelsStore.selectedModelId,
+      model: currentChatModelId.value,
     })
   } catch (error) {
     console.error('发送消息失败:', error)
@@ -796,7 +812,7 @@ const sendMessage = async () => {
     chatStore.addMessage(chatId, {
       role: 'assistant',
       content: `抱歉，发送失败: ${error instanceof Error ? error.message : '未知错误'}`,
-      model: modelsStore.selectedModelId,
+      model: currentChatModelId.value,
     })
   } finally {
     loading.value = false
@@ -1077,10 +1093,10 @@ const generateContextAwareResponse = (
         <!-- 加载状态 -->
         <div v-if="loading" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 mb-6">
           <div class="flex items-center space-x-3">
-            <div class="text-2xl">{{ getModelIcon(modelsStore.selectedModelId) }}</div>
+            <div class="text-2xl">{{ getModelIcon(currentChatModelId) }}</div>
             <div class="flex-1">
               <h4 class="font-medium text-gray-800 mb-2">
-                {{ modelsStore.selectedModel.name }} 正在思考...
+                {{ currentChatModel.name }} 正在思考...
               </h4>
               <div class="flex space-x-2">
                 <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
@@ -1109,15 +1125,11 @@ const generateContextAwareResponse = (
           >
             <div class="flex items-start space-x-3 mb-4">
               <div class="text-2xl">
-                {{ message.role === 'user' ? '👤' : getModelIcon(modelsStore.selectedModelId) }}
+                {{ message.role === 'user' ? '👤' : getModelIcon(currentChatModelId) }}
               </div>
               <div class="flex-1 min-w-0">
                 <h4 class="font-medium text-gray-800 mb-2">
-                  {{
-                    message.role === 'user'
-                      ? '你的问题'
-                      : `${modelsStore.selectedModel.name} 的回复`
-                  }}
+                  {{ message.role === 'user' ? '你的问题' : `${currentChatModel.name} 的回复` }}
                 </h4>
                 <!-- 消息内容显示 -->
                 <div class="relative">
@@ -1458,7 +1470,7 @@ const generateContextAwareResponse = (
               <span>模型：</span>
               <div class="flex items-center space-x-2">
                 <a-select
-                  :value="modelsStore.selectedModelId"
+                  :value="currentChatModelId"
                   @change="handleModelChange"
                   style="width: 180px"
                   size="small"

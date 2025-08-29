@@ -26,6 +26,7 @@ export interface Chat {
   id: string
   title: string
   model: string
+  selectedModelId: string // 当前会话选择的模型ID
   messages: Message[]
   createdAt: Date
   updatedAt: Date
@@ -78,6 +79,7 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
         initialMessage?.substring(0, 20) +
           (initialMessage && initialMessage.length > 20 ? '...' : '') || '新对话',
       model,
+      selectedModelId: model, // 初始化为传入的模型
       messages: [],
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -138,12 +140,30 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     }
   }
 
+  // 更新当前会话的模型选择
+  function updateCurrentChatModel(modelId: string) {
+    if (currentChatId.value) {
+      const chat = chats.value.find((c) => c.id === currentChatId.value)
+      if (chat) {
+        chat.selectedModelId = modelId
+        chat.updatedAt = new Date()
+      }
+    }
+  }
+
   // 数据验证和初始化逻辑
   function validateAndInitialize() {
     // 验证当前选中的聊天是否存在
     if (currentChatId.value && !chats.value.find((chat) => chat.id === currentChatId.value)) {
       currentChatId.value = chats.value.length > 0 ? chats.value[0].id : null
     }
+
+    // 兼容旧数据：为没有 selectedModelId 的会话添加默认值
+    chats.value.forEach((chat) => {
+      if (!chat.selectedModelId) {
+        chat.selectedModelId = chat.model || 'kimi'
+      }
+    })
   }
 
   // 获取存储统计信息
@@ -180,6 +200,7 @@ export const useChatHistoryStore = defineStore('chatHistory', () => {
     deleteChat,
     clearAllChats,
     clearCurrentChatMessages,
+    updateCurrentChatModel,
     validateAndInitialize,
     getStorageStats,
   }
