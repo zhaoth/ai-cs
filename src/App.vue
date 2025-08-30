@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { UserOutlined } from '@ant-design/icons-vue'
 import { Modal } from 'ant-design-vue'
 import { useLocalStorage } from '@vueuse/core'
 import Sidebar from './components/Sidebar.vue'
-import FloatingButton from './components/FloatingButton.vue'
 import MobileOverlay from './components/MobileOverlay.vue'
 import ChatDialog from './components/ChatDialog.vue'
 import { useChatHistoryStore } from '@/stores/chatHistory'

@@ -16,7 +16,7 @@
 #### API 配置
 
 - **API 端点**: `https://api.moonshot.cn/v1/chat/completions`
-- **模型**: `moonshot-v1-8k`
+- **模型**: `kimi-k2-0711-preview`
 - **API Key**: `sk-D8ZaSoL1WeO2j2eFY1WPGTp2iLh4wxWtOLslyMPwGeWWfnR9`
 - **参数配置**:
   - Temperature: 0.7 (控制回复的创造性)

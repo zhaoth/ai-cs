@@ -20,6 +20,17 @@ const searchStore = useSearchHistoryStore()
 const inputMessage = ref('')
 const loading = ref(false)
 
+// 联网搜索相关状态 - 使用计算属性正确绑定到store
+const enableSearch = computed({
+  get: () => modelsStore.enableSearch,
+  set: (value) => (modelsStore.enableSearch = value),
+})
+
+const forcedSearch = computed({
+  get: () => modelsStore.forcedSearch,
+  set: (value) => (modelsStore.forcedSearch = value),
+})
+
 // 聊天容器引用，用于自动滚动
 const chatContainer = ref<HTMLElement | null>(null)
 
@@ -923,14 +934,21 @@ const callAiAPIStreaming = async (
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
+  // Kimi的联网搜索不支持流式输出，需要禁用流式模式
+  const isKimiWithSearch = modelId === 'kimi' && enableSearch.value
+  const streamMode = !isKimiWithSearch
+
   try {
     // 使用统一的API调用服务，传递流式回调和AbortController
     return await callUnifiedAiApi(modelId, limitedMessages, {
       temperature: 0.7,
       maxTokens: 1000,
-      stream: true,
-      onStreamChunk, // 传递流式回调函数
+      stream: streamMode,
+      onStreamChunk: streamMode ? onStreamChunk : undefined, // 传递流式回调函数
       abortController: abortController.value || undefined, // 传递AbortController
+      // 添加联网搜索参数
+      enableSearch: enableSearch.value,
+      forcedSearch: forcedSearch.value,
     })
   } catch (error) {
     // 如果API调用失败，降级到模拟回复
@@ -958,12 +976,19 @@ const callAiAPI = async (modelId: string): Promise<string> => {
   const limitedMessages =
     contextMessages.length > maxMessages ? contextMessages.slice(-maxMessages) : contextMessages
 
+  // Kimi的联网搜索不支持流式输出，需要禁用流式模式
+  const isKimiWithSearch = modelId === 'kimi' && enableSearch.value
+  const streamMode = !isKimiWithSearch
+
   try {
     // 使用统一的API调用服务
     return await callUnifiedAiApi(modelId, limitedMessages, {
       temperature: 0.7,
       maxTokens: 1000,
-      stream: true,
+      stream: streamMode,
+      // 添加联网搜索参数
+      enableSearch: enableSearch.value,
+      forcedSearch: forcedSearch.value,
     })
   } catch (error) {
     // 如果API调用失败，降级到模拟回复
@@ -1510,6 +1535,19 @@ const generateContextAwareResponse = (
                     }))
                   "
                 />
+              </div>
+              <!-- 联网搜索选项 (仅对支持的模型显示) -->
+              <div v-if="currentChatModelId === 'kimi'" class="flex items-center space-x-2">
+                <a-checkbox v-model:checked="enableSearch" title="启用联网搜索">
+                  🔍 联网搜索
+                </a-checkbox>
+                <a-checkbox
+                  v-model:checked="forcedSearch"
+                  :disabled="!enableSearch"
+                  title="强制联网搜索（即使内容已在上下文中）"
+                >
+                  🔒 强制搜索
+                </a-checkbox>
               </div>
               <!-- 清空上下文按钮 -->
               <button

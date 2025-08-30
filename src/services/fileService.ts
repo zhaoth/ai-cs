@@ -142,7 +142,11 @@ export async function callAiApiWithFiles(
   modelId: string,
   messages: Array<{ role: string; content: string }>,
   files: FileAttachment[],
-  config: { onStreamChunk?: (chunk: string) => void } = {},
+  config: {
+    onStreamChunk?: (chunk: string) => void
+    enableSearch?: boolean // 新增：启用联网搜索
+    forcedSearch?: boolean // 新增：强制联网搜索
+  } = {},
 ): Promise<string> {
   // 构建包含文件信息的上下文消息
   const contextMessages = [...messages]
@@ -194,11 +198,13 @@ export async function callAiApiWithFiles(
     }
   }
 
-  // 使用统一API调用，传递流式回调
+  // 使用统一API调用，传递流式回调和联网搜索参数
   return await callUnifiedAiApi(modelId, contextMessages, {
     temperature: 0.7,
     maxTokens: modelId === 'kimi' ? 3000 : 1000, // Kimi支持更长的回复
-    stream: true,
+    stream: modelId === 'kimi' && config.enableSearch ? false : true, // Kimi联网搜索不支持流式
     onStreamChunk: config.onStreamChunk, // 传递流式回调
+    enableSearch: config.enableSearch, // 传递联网搜索参数
+    forcedSearch: config.forcedSearch, // 传递强制搜索参数
   })
 }

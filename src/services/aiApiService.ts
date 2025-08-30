@@ -1,26 +1,24 @@
 import { useModelsStore } from '@/stores/models'
 import { usageTracker } from './usageTracker'
 
-// AI API 响应数据类型
-export interface ApiResponse {
-  choices?: Array<{
-    message?: {
-      content: string
-    }
-    delta?: {
-      content?: string
-    }
-  }>
-  content?: Array<{
-    text: string
-  }>
-}
-
 // 流式响应数据类型
 export interface StreamResponse {
   choices?: Array<{
     delta?: {
       content?: string
+    }
+    finish_reason?: string
+    message?: {
+      role: string
+      content: string
+      tool_calls?: Array<{
+        id: string
+        type: string
+        function: {
+          name: string
+          arguments: string
+        }
+      }>
     }
   }>
   delta?: {
@@ -29,6 +27,45 @@ export interface StreamResponse {
   content_block?: {
     text?: string
   }
+}
+
+// AI API 响应数据类型
+export interface ApiResponse {
+  choices?: Array<{
+    message?: {
+      content: string
+      tool_calls?: Array<{
+        id: string
+        type: string
+        function: {
+          name: string
+          arguments: string
+        }
+      }>
+    }
+    delta?: {
+      content?: string
+    }
+    finish_reason?: string
+  }>
+  content?: Array<{
+    text: string
+  }>
+}
+
+// 扩展消息类型以支持工具调用
+export interface ExtendedMessage {
+  role: string
+  content: string
+  tool_calls?: Array<{
+    id: string
+    type: string
+    function: {
+      name: string
+      arguments: string
+    }
+  }>
+  tool_call_id?: string
 }
 
 // AI API 配置接口
@@ -52,6 +89,17 @@ export interface ApiRequestConfig {
   systemMessage?: string
   onStreamChunk?: (chunk: string) => void // 新增：流式数据回调
   abortController?: AbortController // 新增：取消控制器
+  enableSearch?: boolean // 新增：启用联网搜索
+  forcedSearch?: boolean // 新增：强制联网搜索
+  tools?: Array<{
+    // 新增：工具定义（用于Kimi联网搜索）
+    type: string
+    function: {
+      name: string
+      description: string
+      parameters: Record<string, unknown>
+    }
+  }>
 }
 
 // 默认请求配置
@@ -151,6 +199,12 @@ abstract class BaseApiProvider {
                   onChunk(content)
                 }
               }
+
+              // 检查是否有工具调用完成原因
+              if (parsed.choices?.[0]?.finish_reason === 'tool_calls') {
+                // 工具调用情况下停止处理
+                break
+              }
             } catch {
               // 忽略解析错误的数据块
             }
@@ -174,6 +228,12 @@ abstract class BaseApiProvider {
 
   // 提取流式内容（子类可重写）
   protected extractStreamContent(parsed: StreamResponse): string | null {
+    // 检查是否有工具调用
+    if (parsed.choices?.[0]?.finish_reason === 'tool_calls') {
+      // 工具调用情况下不返回内容
+      return null
+    }
+
     return parsed.choices?.[0]?.delta?.content || null
   }
 
@@ -182,6 +242,13 @@ abstract class BaseApiProvider {
     if (this.config.responseTransformer) {
       return this.config.responseTransformer(data)
     }
+
+    // 检查是否有工具调用
+    if (data.choices?.[0]?.finish_reason === 'tool_calls') {
+      // 工具调用情况下不返回内容
+      return ''
+    }
+
     return data.choices?.[0]?.message?.content || '抱歉，我无法回复您的消息。'
   }
 
@@ -234,7 +301,7 @@ export class KimiApiProvider extends BaseApiProvider {
   constructor() {
     super({
       endpoint: 'https://api.moonshot.cn/v1/chat/completions',
-      model: 'moonshot-v1-8k', // 使用最新的稳定模型
+      model: 'kimi-k2-0711-preview', // 使用最新的稳定模型
       headers: {},
     })
   }
@@ -251,6 +318,181 @@ export class KimiApiProvider extends BaseApiProvider {
     return {
       Authorization: `Bearer ${apiKey}`,
     }
+  }
+
+  tools = [
+    {
+      type: 'builtin_function',
+      function: {
+        name: '$web_search',
+        description: '联网搜索功能，用于获取最新的网络信息',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: '搜索关键词',
+            },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  ]
+
+  // 重写构建请求体方法，添加联网搜索参数
+  protected buildRequestBody(
+    messages: Array<{ role: string; content: string } | ExtendedMessage>,
+    config: ApiRequestConfig,
+  ): Record<string, unknown> {
+    // 调用父类方法获取基础请求体
+    const baseRequestBody = super.buildRequestBody(messages, config)
+
+    // 添加联网搜索参数
+    const kimiRequestBody: Record<string, unknown> = {
+      ...baseRequestBody,
+    }
+
+    // 如果启用了联网搜索，添加tools参数
+    if (config.enableSearch) {
+      kimiRequestBody.tools = this.tools
+      // Kimi的工具调用不支持流式输出，需要禁用流式模式
+      kimiRequestBody.stream = false
+    }
+
+    // 如果启用了强制搜索，添加search参数
+    if (config.forcedSearch) {
+      kimiRequestBody.search = true
+    }
+
+    return kimiRequestBody
+  }
+
+  // 重写主要调用方法以支持工具调用
+  async call(
+    messages: Array<{ role: string; content: string } | ExtendedMessage>,
+    config: ApiRequestConfig = {},
+  ): Promise<string> {
+    // 创建消息副本用于工具调用循环
+    const currentMessages: Array<{ role: string; content: string } | ExtendedMessage> = [
+      ...messages,
+    ]
+    let finalResponse = ''
+
+    // 工具调用循环（最多循环5次，防止无限循环）
+    let toolCallCount = 0
+    const maxToolCalls = 5
+
+    // 工具调用循环
+    while (toolCallCount < maxToolCalls) {
+      const apiKey = this.getApiKey()
+      const requestBody = this.buildRequestBody(currentMessages, config)
+      const headers = this.buildHeaders(apiKey)
+
+      try {
+        const response = await fetch(this.config.endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: config.abortController?.signal,
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null)
+          throw new Error(
+            `API 调用失败: ${response.status} ${response.statusText} ${errorData?.error?.message || ''}`,
+          )
+        }
+
+        // 处理流式响应
+        if (config.stream !== false) {
+          const streamResponse = await this.processStreamResponse(
+            response,
+            config.onStreamChunk,
+            config.abortController,
+          )
+          finalResponse = streamResponse
+          break // 流式响应直接返回，不处理工具调用
+        } else {
+          // 处理非流式响应
+          const data = await response.json()
+
+          // 检查是否有工具调用
+          if (data.choices?.[0]?.finish_reason === 'tool_calls') {
+            // 获取工具调用信息
+            const toolCalls = data.choices[0].message?.tool_calls
+            if (toolCalls && toolCalls.length > 0) {
+              // 将助手的消息添加到上下文中
+              currentMessages.push({
+                role: 'assistant',
+                content: data.choices[0].message?.content || '',
+                tool_calls: toolCalls,
+              } as ExtendedMessage)
+
+              // 处理每个工具调用
+              for (const toolCall of toolCalls) {
+                if (toolCall.function.name === '$web_search') {
+                  // 对于网络搜索，我们需要解析参数并传递回去
+                  let searchArgs = toolCall.function.arguments
+                  try {
+                    // 尝试解析参数为JSON对象
+                    const argsObj = JSON.parse(toolCall.function.arguments)
+                    if (argsObj.query) {
+                      searchArgs = JSON.stringify(argsObj)
+                    }
+                  } catch {
+                    // 如果解析失败，保持原始字符串
+                    console.warn(
+                      'Failed to parse search arguments as JSON, using raw string:',
+                      toolCall.function.arguments,
+                    )
+                  }
+
+                  currentMessages.push({
+                    role: 'tool',
+                    content: searchArgs,
+                    tool_call_id: toolCall.id,
+                  })
+                } else {
+                  // 对于不支持的工具调用，返回错误信息
+                  console.warn('Unsupported tool call:', toolCall.function.name)
+                  currentMessages.push({
+                    role: 'tool',
+                    content: `不支持的工具调用: ${toolCall.function.name}`,
+                    tool_call_id: toolCall.id,
+                  })
+                }
+              }
+              // 增加工具调用计数
+              toolCallCount++
+              // 继续循环以获取最终响应
+              continue
+            }
+          } else {
+            // 没有工具调用，返回最终响应
+            finalResponse = data.choices?.[0]?.message?.content || '抱歉，我无法回复您的消息。'
+            break
+          }
+        }
+      } catch (error) {
+        console.error(`${this.constructor.name} API 调用失败:`, error)
+        throw new Error(
+          `${this.constructor.name} API 调用失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        )
+      }
+    }
+
+    // 检查是否达到最大工具调用次数
+    if (toolCallCount >= maxToolCalls) {
+      console.warn('达到最大工具调用次数，停止工具调用循环')
+    }
+
+    // 跟踪使用情况
+    const inputText = messages.map((m) => m.content).join(' ')
+    const outputText = finalResponse
+    usageTracker.trackUsage('Moonshot', 'kimi', inputText, outputText)
+
+    return finalResponse
   }
 }
 

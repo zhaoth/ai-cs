@@ -1,6 +1,5 @@
-import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-
+import { computed, ref } from 'vue'
 export interface Model {
   id: string
   name: string
@@ -43,6 +42,10 @@ export const useModelsStore = defineStore('models', () => {
   ])
 
   const selectedModelId = ref<string>('kimi')
+
+  // 添加联网搜索相关状态
+  const enableSearch = ref<boolean>(false)
+  const forcedSearch = ref<boolean>(false)
 
   // API Keys 管理 - 支持多种模型提供商
   const apiKeys = ref<ApiKey[]>([
@@ -161,5 +164,8 @@ export const useModelsStore = defineStore('models', () => {
     updateBalance,
     currentModelBalance,
     allBalances,
+    // 添加联网搜索相关的返回值
+    enableSearch,
+    forcedSearch,
   }
 })
